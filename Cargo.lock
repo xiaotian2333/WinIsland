@@ -4,8 +4,9 @@ version = 4
 
 [[package]]
 name = "EchoMusic-Lyrics-WinIsland"
-version = "1.2.3"
+version = "1.2.4"
 dependencies = [
+ "base64 0.22.1",
  "bytemuck",
  "cpal",
  "dirs",

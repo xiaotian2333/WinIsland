@@ -76,7 +76,7 @@ jobs:
         if ($env:FONT_URL) {
           Write-Host "Downloading built-in font from $env:FONT_URL"
           New-Item -Force -ItemType Directory -Path resources | Out-Null
-          Invoke-WebRequest -Uri $env:FONT_URL -OutFile resources/font.ttf
+          Invoke-WebRequest -Uri $env:FONT_URL -OutFile resources/font.otf
         } else {
           Write-Host "BUILTIN_FONT_URL not set, skipping font download"
         }

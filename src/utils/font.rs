@@ -6,6 +6,7 @@ use skia_safe::{
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
+use once_cell::sync::Lazy;
 use std::sync::OnceLock;
 
 static GLOBAL_FONT_MANAGER: OnceLock<FontManager> = OnceLock::new();
@@ -37,6 +38,8 @@ thread_local! {
     static WEIGHT_CLONE_CACHE: RefCell<HashMap<i32, Typeface>> = RefCell::new(HashMap::new());
 }
 
+#[cfg(has_builtin_font)]
+static BUILTIN_FONT_BYTES: Lazy<&[u8]> = Lazy::new(|| &include_bytes!("../../resources/font.otf")[..]);
 #[cfg(has_builtin_font)]
 static BUILTIN_TYPEFACE: OnceLock<Typeface> = OnceLock::new();
 
@@ -96,22 +99,28 @@ fn get_custom_typeface() -> Option<Typeface> {
     }
 }
 
+/// 获取编译时内嵌的字体原始字节数据。
+/// 仅在 cfg(has_builtin_font) 时存在；否则返回 None。
+pub fn get_builtin_font_data() -> Option<&'static [u8]> {
+    #[cfg(has_builtin_font)]
+    { Some(*BUILTIN_FONT_BYTES) }
+    #[cfg(not(has_builtin_font))]
+    { None }
+}
+
 /// 尝试获取编译时内嵌的内置字体。
 /// 仅在 cfg(has_builtin_font) 时存在；否则返回 None。
 fn get_builtin_typeface() -> Option<&'static Typeface> {
     #[cfg(has_builtin_font)]
     {
         Some(BUILTIN_TYPEFACE.get_or_init(|| {
-            let data = include_bytes!("../../resources/font.ttf");
             FONT_MGR
-                .with(|mgr| mgr.new_from_data(data, None))
-                .expect("MiSans VF 内嵌字体加载失败")
+                .with(|mgr| mgr.new_from_data(*BUILTIN_FONT_BYTES, None))
+                .expect("MiSans 内嵌字体加载失败")
         }))
     }
     #[cfg(not(has_builtin_font))]
-    {
-        None
-    }
+    { None }
 }
 
 /// 如果字型支持 wght 轴且请求字重在范围内，返回调整后的克隆；
@@ -165,8 +174,9 @@ fn get_typeface_for_char(c: char, style: FontStyle) -> (Typeface, bool) {
             base.unichars_to_glyphs(&[c as i32], &mut glyphs);
             if glyphs[0] != 0 {
                 let tf = with_weight(base, *style.weight());
+                let embolden = needs_synthetic_bold(&tf, style);
                 cache.insert((c, s_key), tf.clone());
-                return (tf, false);
+                return (tf, embolden);
             }
         }
 
@@ -205,8 +215,9 @@ fn compute_text_groups(text: &str, size: f32, style: FontStyle) -> (f32, TextGro
 
     if is_ascii_text(text) {
         let (tf, embolden) = if let Some(base) = get_builtin_typeface() {
-            // 内嵌字体优先，使用 with_weight 获得实际字重
-            (with_weight(base, *style.weight()), false)
+            let tf = with_weight(base, *style.weight());
+            let embolden = needs_synthetic_bold(&tf, style);
+            (tf, embolden)
         } else {
             let tf = FONT_MGR.with(|mgr| {
                 mgr.match_family_style("Microsoft YaHei", style)

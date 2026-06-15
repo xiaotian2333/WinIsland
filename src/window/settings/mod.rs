@@ -11,6 +11,7 @@ use crate::core::config::{is_valid_color, APP_AUTHOR, APP_HOMEPAGE, APP_VERSION,
 use crate::core::i18n::{current_lang, init_i18n, tr};
 use crate::core::persistence::{load_config, save_config};
 use crate::utils::autostart::set_autostart;
+use base64::Engine;
 use crate::utils::font::FontManager;
 
 const SETTINGS_TITLE: &str = "EchoMusic-Lyrics-WinIsland Settings";
@@ -201,6 +202,12 @@ fn open_homepage() -> Result<(), String> {
     open::that(APP_HOMEPAGE).map_err(|err| err.to_string())
 }
 
+#[tauri::command]
+fn get_builtin_font() -> Option<String> {
+    crate::utils::font::get_builtin_font_data()
+        .map(|data| base64::engine::general_purpose::STANDARD.encode(data))
+}
+
 pub fn run_settings(config: AppConfig) {
     init_i18n(&config.language);
 
@@ -217,6 +224,7 @@ pub fn run_settings(config: AppConfig) {
             reset_font,
             check_updates_now,
             open_homepage,
+            get_builtin_font,
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Tauri settings window");

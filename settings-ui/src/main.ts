@@ -614,11 +614,32 @@ function handleKeydown(event) {
   }
 }
 
+async function loadBuiltinFont() {
+  try {
+    const b64 = await invoke("get_builtin_font");
+    if (!b64) return;
+    const binaryStr = atob(b64);
+    const bytes = new Uint8Array(binaryStr.length);
+    for (let i = 0; i < binaryStr.length; i++) {
+      bytes[i] = binaryStr.charCodeAt(i);
+    }
+    const blob = new Blob([bytes], { type: "font/otf" });
+    const url = URL.createObjectURL(blob);
+    const style = document.createElement("style");
+    style.textContent =
+      `@font-face { font-family: "AppBuiltinFont"; src: url("${url}") format("opentype"); font-display: swap; }`;
+    document.head.appendChild(style);
+  } catch (e) {
+    console.warn("Failed to load built-in font:", e);
+  }
+}
+
 async function load() {
   if (!root) {
     return;
   }
   root.innerHTML = `<div class="loading">EchoMusic-Lyrics-WinIsland</div>`;
+  loadBuiltinFont();
   try {
     applyState(await invoke("get_settings_state"));
   } catch (error) {

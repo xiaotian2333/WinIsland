@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 1420",
-    "build": "vite build && node -e \"try{require('fs').copyFileSync('../resources/font.ttf','dist/font.ttf')}catch(e){}\"",
+    "build": "vite build",
     "preview": "vite preview --host 127.0.0.1 --port 1420"
   },
   "devDependencies": {
