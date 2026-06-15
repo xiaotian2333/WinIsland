@@ -333,11 +333,9 @@ function generalEffects() {
         { value: "square", label: tr("shape_square") },
         { value: "circle", label: tr("shape_circle") },
       ]),
-      switchRow(tr("adaptive_border"), "adaptive_border"),
       switchRow(tr("motion_blur"), "motion_blur"),
       switchRow(tr("cover_rotate"), "cover_rotate"),
       switchRow(tr("audio_gate"), "audio_gate"),
-      switchRow(tr("auto_gate"), "auto_gate", config.audio_gate),
     ]),
     section(tr("section_experimental"), [
       switchRow(tr("mini_controls"), "mini_controls"),

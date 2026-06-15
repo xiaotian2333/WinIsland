@@ -1,8 +1,5 @@
 use skia_safe::Color;
 
-pub fn get_island_border_weights(_cx: i32, _cy: i32, _w: f32, _h: f32) -> [f32; 4] {
-    [0.0, 0.0, 0.0, 0.0]
-}
 
 pub fn parse_hex_color(hex: &str) -> Option<Color> {
     let hex = hex.trim();

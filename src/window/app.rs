@@ -11,7 +11,7 @@ use crate::ui::expanded::music_view::{
 };
 use crate::utils::backdrop::{clear_mica_cache, disable_mica};
 use crate::utils::blur::calculate_blur_sigmas;
-use crate::utils::color::{get_island_border_weights, parse_hex_color};
+use crate::utils::color::parse_hex_color;
 use crate::utils::icon::get_app_icon;
 use crate::utils::liquid_glass::{clear_liquid_glass_cache, set_exclude_from_capture};
 use crate::utils::mouse::{
@@ -50,8 +50,6 @@ pub struct App {
     expanded: bool,
     widget_view: bool,
     visible: bool,
-    border_weights: [f32; 4],
-    target_border_weights: [f32; 4],
     spring_w: Spring,
     spring_h: Spring,
     spring_r: Spring,
@@ -108,8 +106,6 @@ impl Default for App {
             expanded: false,
             widget_view: false,
             visible: true,
-            border_weights: [0.0; 4],
-            target_border_weights: [0.0; 4],
             spring_w: Spring::new(config.base_width * config.non_expanded_scale),
             spring_h: Spring::new(config.base_height * config.non_expanded_scale),
             spring_r: Spring::new((config.base_height * config.non_expanded_scale) / 2.0),
@@ -1074,11 +1070,9 @@ impl ApplicationHandler for App {
                         }
                         if !self.config.audio_gate {
                             self.audio.set_gate_override(false);
-                        } else if self.config.auto_gate {
+                        } else {
                             let is_hidden = self.auto_hidden || self.manually_hidden;
                             self.audio.set_gate_override(!is_hidden);
-                        } else {
-                            self.audio.set_gate_override(true);
                         }
                         media_info.spectrum = self.audio.get_spectrum();
                         if !self.config.audio_gate {
@@ -1168,7 +1162,6 @@ impl ApplicationHandler for App {
                                     island_style: &self.config.island_style,
                                     use_blur: self.config.motion_blur,
                                     font_size: self.config.font_size,
-                                    weights: self.border_weights,
                                     mini_cover_shape: &self.config.mini_cover_shape,
                                     expanded_cover_shape: &self.config.expanded_cover_shape,
                                     cover_rotate: self.config.cover_rotate,
@@ -1465,32 +1458,7 @@ impl ApplicationHandler for App {
             self.idle_timer = Instant::now();
         }
 
-        if self.config.adaptive_border {
-            if self.frame_count.is_multiple_of(30) {
-                let island_cx =
-                    self.win_x + (offset_x + (self.spring_w.value as f64) / 2.0).round() as i32;
-                let island_cy = self.win_y
-                    + (current_island_y + (self.spring_h.value as f64) / 2.0).round() as i32;
-                let raw_weights = get_island_border_weights(
-                    island_cx,
-                    island_cy,
-                    self.spring_w.value,
-                    self.spring_h.value,
-                );
-                self.target_border_weights = raw_weights.map(|w| if w > 0.85 { w } else { 0.0 });
-            }
-        } else {
-            self.target_border_weights = [0.0; 4];
-        }
         self.frame_count += 1;
-        for i in 0..4 {
-            let diff = self.target_border_weights[i] - self.border_weights[i];
-            if diff.abs() > 0.005 {
-                self.border_weights[i] += diff * 0.1 * dt;
-            } else {
-                self.border_weights[i] = self.target_border_weights[i];
-            }
-        }
 
         let is_paused = music_active && !media.is_playing;
         let current_lyric_opt = if self.config.show_lyrics && !is_paused {

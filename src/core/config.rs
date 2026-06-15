@@ -149,7 +149,6 @@ pub struct AppConfig {
     pub base_height: f32,
     pub expanded_width: f32,
     pub expanded_height: f32,
-    pub adaptive_border: bool,
     pub motion_blur: bool,
     #[serde(default = "default_island_style")]
     pub island_style: String,
@@ -207,8 +206,6 @@ pub struct AppConfig {
     pub cover_rotate: bool,
     #[serde(default = "default_audio_gate")]
     pub audio_gate: bool,
-    #[serde(default = "default_auto_gate")]
-    pub auto_gate: bool,
     #[serde(default = "default_mini_controls")]
     pub mini_controls: bool,
     #[serde(default = "default_lyrics_char_highlight")]
@@ -331,10 +328,6 @@ fn default_audio_gate() -> bool {
     true
 }
 
-fn default_auto_gate() -> bool {
-    true
-}
-
 fn default_mini_controls() -> bool {
     false
 }
@@ -369,7 +362,6 @@ impl Default for AppConfig {
             base_height: 27.0,
             expanded_width: 360.0,
             expanded_height: 200.0,
-            adaptive_border: false,
             motion_blur: true,
             island_style: "default".to_string(),
             show_lyrics: true,
@@ -399,7 +391,6 @@ impl Default for AppConfig {
             expanded_cover_shape: "square".to_string(),
             cover_rotate: false,
             audio_gate: true,
-            auto_gate: true,
             mini_controls: false,
             lyrics_char_highlight: true,
             lyrics_char_color_unplayed: "auto".to_string(),
