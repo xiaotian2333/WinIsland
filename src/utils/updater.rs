@@ -300,11 +300,12 @@ async fn fetch_from_github(
 }
 
 async fn perform_update(candidate: UpdateCandidate) {
+    let ver = candidate.tag_name.trim_start_matches('v');
     let mut dl_urls: Vec<String> = Vec::new();
     if let Some(ref url) = candidate.mirror_download_url {
-        dl_urls.push(url.clone());
+        dl_urls.push(format!("{}?ver={}", url, ver));
     }
-    dl_urls.push(candidate.download_url.clone());
+    dl_urls.push(format!("{}?ver={}", candidate.download_url, ver));
 
     let mut bytes: Option<Vec<u8>> = None;
     for url in &dl_urls {
