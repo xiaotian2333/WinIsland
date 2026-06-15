@@ -4,9 +4,9 @@
 
 EchoMusic-Lyrics-WinIsland is a Windows desktop application that creates a Dynamic Island overlay — a translucent, always-on-top island that displays media playback info, lyrics, and audio visualization. Built entirely in Rust with Skia for GPU-accelerated rendering.
 
-- **Window system**: winit + softbuffer
+- **Window system**: winit + softbuffer (主窗口), Tauri v2 Web (设置窗口)
 - **Rendering**: skia-safe (Skia canvas API)
-- **Media integration**: Windows SMTC (System Media Transport Controls) via COM
+- **Media integration**: WebSocket 桥接 (替代 Windows SMTC)
 - **Audio visualization**: cpal (loopback capture) + realfft (6-band spectrum)
 - **Language**: English & Chinese (i18n via custom .lang files)
 
@@ -20,33 +20,39 @@ src/
 │   ├── audio.rs       Audio loopback capture + FFT spectrum
 │   ├── config.rs      AppConfig struct and defaults
 │   ├── i18n.rs        Translation system (key-value .lang files)
-│   ├── lyrics.rs      Async lyrics fetcher (NetEase, lrclib, local .lrc)
+│   ├── lyrics.rs      MusicData payload parser & lyric index helpers
+│   ├── lyrics_ws.rs   WebSocket server (127.0.0.1:17195) for EchoMusic plugin
+│   ├── media_info.rs  MediaInfo struct — current track, position, lyrics, cover
 │   ├── persistence.rs Config save/load (~/.echomusic-lyrics-winisland/config.toml)
 │   ├── render.rs      Main draw_island() — all Skia rendering lives here
-│   └── smtc.rs        SMTC session manager — polls media info, handles commands
+│   └── ws_media.rs    WsMediaListener — WS event loop, state management, play control
 ├── icons/             Custom Skia path icons (arrows, controls, music, settings)
+│   ├── arrows.rs
+│   ├── controls.rs
+│   ├── music.rs
+│   └── settings.rs
 ├── ui/expanded/       Expanded island views
 │   ├── music_view.rs  Music player page (album art, controls, progress)
 │   └── widget_view.rs Widget/page view for additional content
 ├── utils/             Utilities
-│   ├── animations.rs  Animation curve helpers
 │   ├── autostart.rs   Registry-based auto-start
 │   ├── backdrop.rs    Mica & dynamic color background effects
 │   ├── blur.rs        Motion blur sigma calculation
 │   ├── color.rs       Adaptive island border color from screen pixels
 │   ├── font.rs        Font manager with caching
 │   ├── glass.rs       Frosted glass effect (GDI capture + blur + dark overlay)
+│   ├── icon.rs        Helper for loading/rendering icon bitmaps
 │   ├── liquid_glass.rs Advanced refractive liquid glass effect (SKSL shader)
 │   ├── mouse.rs       Global cursor position, hit-test, fullscreen detection
 │   ├── physics.rs     Spring physics for smooth animations
+│   ├── process.rs     Process discovery & external app detection
 │   ├── scroll.rs      Scroll container helpers
-│   ├── settings_ui/   Skia-rendered settings UI components
 │   ├── updater.rs     Nightly release check + download
 │   └── win32.rs       Raw Win32 API wrappers (topmost, window styles, etc.)
 └── window/
     ├── app.rs         Main App struct — event loop, state, input, orchestration
     ├── tray.rs        System tray icon + context menu
-    └── settings/      Separate settings window
+    └── settings/      Separate settings window (Tauri v2 Web)
 ```
 
 ---
@@ -72,7 +78,7 @@ about_to_wait() [every frame ~144 FPS]:
 
 RedrawRequested → draw_island():
   1. Compute dt, motion blur sigmas
-  2. Get current MediaInfo from SMTC
+  2. Get current MediaInfo from WebSocket bridge
   3. Get spectrum from AudioProcessor
   4. Draw background (5 styles: default, glass, mica, dynamic, liquid_glass)
   5. Draw album art (rounded/cover fit)
@@ -86,21 +92,26 @@ RedrawRequested → draw_island():
 Each style draws its background differently:
 - **glass**: GDI screen capture → heavy blur → dark multiply blend
 - **liquid_glass**: GDI screen capture → moderate blur → SKSL shader (refraction + specular)
-- **mica**: AcquireDesktopImage (Win11) or GDI capture → blur → overlay
+- **mica**: GDI screen capture (downscaled) → blur → dark overlay
 - **dynamic**: Solid color extracted from album art palette
 - **default**: Solid black
 
 ---
 
-## SMTC integration
+## Media integration (WebSocket bridge)
 
-[SMTC](src/core/smtc.rs) uses Windows `GlobalSystemMediaTransportControlsSessionManager`:
+The project no longer uses Windows SMTC directly. Instead, media state is obtained through a WebSocket bridge:
 
-- Polls session properties every 300ms (title, artist, thumbnail, position, duration)
-- On song change: triggers async lyrics fetch + thumbnail download
-- Auto-allow list: known music apps are automatically registered
-- Handles seek/play/pause/skip commands from the UI
-- Periodically refreshes (every 30th poll ~9s) to catch new apps
+1. **`src/core/lyrics_ws.rs`** starts a WebSocket server on `127.0.0.1:17195`.
+2. The EchoMusic plugin (via [Lyrics-bridge](https://github.com/xiaotian2333/Lyrics-bridge)) connects as a client and pushes `MusicData`, `PlaybackState`, and playback action events.
+3. **`src/core/ws_media.rs`** runs `ws_media_loop()` which:
+   - Receives `MusicData` → extracts metadata (title, artist, cover), lyrics, and merges into `MediaInfo`
+   - Receives `PlaybackState` → updates position/duration/is_playing
+   - Receives playback actions → updates state accordingly
+   - Sends seek/play/pause/next/prev commands back to the plugin
+   - Periodically (every 2s) requests playback state refresh via `get_playback_state()`
+4. **`src/core/media_info.rs`** defines the `MediaInfo` struct used throughout the UI layer.
+5. **`src/core/lyrics.rs`** parses the `MusicData` JSON payload (including Base64 cover decoding, lyric line sorting, character-level timestamps).
 
 ---
 
@@ -108,13 +119,11 @@ Each style draws its background differently:
 
 | Area | APIs |
 |------|------|
-| SMTC | `GlobalSystemMediaTransportControlsSessionManager` |
 | COM | `CoInitializeEx`, `CoUninitialize` |
 | Audio | `IMMDeviceEnumerator`, `IAudioMeterInformation` |
-| Window | `SetWindowPos` (topmost), extended styles (WS_EX_TOOLWINDOW, WS_EX_NOACTIVATE, WS_EX_LAYERED, WS_EX_TRANSPARENT) |
+| Window | `SetWindowPos` (topmost), extended styles (WS_EX_TOOLWINDOW, WS_EX_NOACTIVATE) |
 | GDI | `GetDC`, `CreateCompatibleDC`, `BitBlt`, `GetDIBits`, `StretchBlt` |
-| DWM | `DwmEnableBlurBehindWindow` (deprecated), `DwmSetWindowAttribute` (mica) |
-| IME | `ImmGetContext`, `ImmSetCompositionWindow` |
+| DWM | `DwmSetWindowAttribute` (mica) |
 | Registry | Auto-start registration |
 | Locale | `GetUserDefaultLocaleName` for language auto-detect |
 | Shell | `SetCurrentProcessExplicitAppUserModelID` |
@@ -130,7 +139,7 @@ Stored as TOML at `~/.echomusic-lyrics-winisland/config.toml`:
 - Window dimensions (compact/expanded)
 - Visual style (default/glass/mica/dynamic/liquid_glass)
 - Language (auto/en/zh)
-- SMTC settings (auto-allow, lyric sources)
+- Lyric sources & WebSocket config
 - Audio visualization (gate threshold)
 - Auto-hide and auto-start behavior
 

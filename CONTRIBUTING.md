@@ -1,5 +1,5 @@
 # 贡献指南
-[English](../CONTRIBUTING.md) | 简体中文
+简体中文
 
 感谢你对 EchoMusic-Lyrics-WinIsland 项目的关注！这份文档将帮助你了解如何为项目做出贡献。
 
@@ -155,7 +155,7 @@ docs(contributing): 补充 Skia 渲染相关规范
 - ✅ `cargo fmt` 无差异
 - ✅ `cargo clippy` 无警告（`-D warnings`）
 - ✅ `cargo build --release` 成功
-- ✅ 功能完整且不会破坏已有的 SMTC 监听或窗口行为
+- ✅ 功能完整且不会破坏已有的 WebSocket 媒体监听或窗口行为
 - ✅ `unsafe` 代码块有充分理由，且安全性已审核
 
 ### 建议满足

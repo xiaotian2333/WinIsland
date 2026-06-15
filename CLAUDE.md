@@ -84,7 +84,7 @@ cargo build --release --verbose --target x86_64-pc-windows-msvc
 ### 主窗口编排
 
 - `src/window/app.rs` 定义主 `App`，实现 `winit::application::ApplicationHandler`。
-- `App` 持有主窗口、`softbuffer` surface、托盘管理器、`SmtcListener`、`AudioProcessor`、当前配置、弹簧动画状态、歌词过渡状态、自动隐藏/拖拽/触摸/进度条拖动等 UI 状态。
+- `App` 持有主窗口、`softbuffer` surface、托盘管理器、`WsMediaListener`、`AudioProcessor`、当前配置、弹簧动画状态、歌词过渡状态、自动隐藏/拖拽/触摸/进度条拖动等 UI 状态。
 - `resumed()` 创建透明、置顶、跳过任务栏、不可最大化的窗口，并初始化托盘。
 - `window_event()` 处理鼠标、触摸、主题变化和重绘；重绘时从 SMTC 获取 `MediaInfo`，从音频处理器取六段频谱，然后调用 `core::render::draw_island()`。
 - `about_to_wait()` 是每帧调度核心：保持置顶、处理托盘事件、热加载配置、更新 hover/hit-test、自动隐藏、全屏/隐藏鼠标抑制、歌词变化、进度条 seek、弹簧动画，并按需要 request redraw。
@@ -94,12 +94,14 @@ cargo build --release --verbose --target x86_64-pc-windows-msvc
 - `src/core/config.rs` 定义 `AppConfig`、默认值和常量。新增配置字段时要考虑 `serde(default = "...")`，避免破坏旧配置文件。
 - `src/core/persistence.rs` 负责保存/加载 TOML 配置，并对尺寸/缩放等字段做下限或范围修正。
 - `src/core/i18n.rs` 从运行目录 `resources/in_app/lang/*.lang` 加载语言文件，找不到时使用编译期 fallback；`auto` 会通过 Windows locale 识别中文/英文。
-- `src/core/smtc.rs` 是媒体状态中枢：
-  - 只选择 EchoMusic 的 SMTC 会话，目标 AUMID 为 `com.hoowhoami.echomusic`。
-  - 在 `spawn_blocking` 线程中初始化 COM，轮询/监听 SMTC 状态、时间轴、封面、播放控制。
-  - 用 `watch::Receiver<MediaInfo>` 向 UI 暴露最新状态，用 mpsc 接收 seek/上一首/下一首/播放暂停请求。
-  - 接收 `lyrics_ws` 的 `MusicData` 后，会按当前标题/歌手校验匹配，再合并真实歌词和封面。
-- `src/core/lyrics_ws.rs` 在 `127.0.0.1:17195` 启动 WebSocket 服务端。EchoMusic 插件是客户端；服务端接收 `ping`、`subscribe`、`MusicData`，并可发送 `command`（如 `request_track_lyrics`、`seek`）。协议细节见根目录 [接口文档.md](https://raw.githubusercontent.com/xiaotian2333/Lyrics-bridge/refs/heads/main/docs/%E6%8E%A5%E5%8F%A3%E6%96%87%E6%A1%A3.md)。
+- `src/core/ws_media.rs` 是媒体状态中枢 — 运行 `ws_media_loop()`：
+  - 通过 mpsc 通道接收 `lyrics_ws` 的 WebSocket 事件（`MusicData`、`PlaybackState`、`PlaybackAction`）
+  - 接收 `MusicData` 后，按当前标题/歌手校验匹配，再合并真实歌词和封面到 `MediaInfo`
+  - 用 `watch::Receiver<MediaInfo>` 向 UI 暴露最新状态
+  - 用 mpsc 接收 UI 层的 seek/上一首/下一首/播放暂停请求，转发给插件
+  - 每 2 秒请求一次播放状态刷新
+- `src/core/media_info.rs` 定义 `MediaInfo` 结构体，包含曲目信息、播放位置、歌词、封面等，并提供辅助方法。
+- `src/core/lyrics_ws.rs` 在 `127.0.0.1:17195` 启动 WebSocket 服务端。EchoMusic 插件是客户端；服务端接收 `ping`、`subscribe`、`MusicData`，并可发送 `command`（如 `request_track_lyrics`、`seek`）。协议细节见根目录 [接口文档.md](接口文档.md)。
 - `src/core/lyrics.rs` 解析 `MusicData.payload`、校验纯 Base64 封面、排序歌词行，并提供当前歌词/过滤辅助函数；这里已有多组单元测试。
 - `src/core/audio.rs` 启动输出设备捕获和音频峰值门控线程，生成 `[f32; 6]` 频谱供渲染频谱条使用。
 - `src/core/render.rs` 是主岛绘制入口，接收布局、媒体、歌词、窗口和样式参数，使用 thread-local Skia surface 绘制背景、封面、歌词、频谱、进度条和迷你控制，然后提交到 `softbuffer`。
@@ -109,7 +111,7 @@ cargo build --release --verbose --target x86_64-pc-windows-msvc
 - `src/ui/expanded/music_view.rs` 绘制展开态音乐页，包含封面、标题/歌手滚动、进度条、播放控制、频谱、封面翻转/旋转等缓存和动画状态；也提供按钮/进度条 hit rect。
 - `src/ui/expanded/widget_view.rs` 绘制展开态的另一页内容。
 - `src/window/tray.rs` 创建系统托盘图标和菜单，菜单动作包括显示/隐藏、打开设置、重启和退出。
-- `src/window/settings/` 是独立设置窗口，使用 Skia 和 `utils/settings_ui/` 的控件渲染配置界面。
+- `src/window/settings/` 是独立设置窗口，使用 Skia 渲染配置界面。
 - `src/icons/` 存放用 Skia path 绘制的图标。新增图标时放在这里，不要在业务代码里硬编码 SVG/path。
 - `src/utils/` 包含跨模块工具：
   - `glass.rs`、`liquid_glass.rs`、`backdrop.rs`：不同背景/玻璃效果和缓存。
@@ -123,11 +125,11 @@ cargo build --release --verbose --target x86_64-pc-windows-msvc
 ## 数据流速览
 
 1. `main.rs` 加载配置和语言，创建 Tokio runtime，启动更新检查，进入 `App`。
-2. `App::default()` 创建 `SmtcListener` 和 `AudioProcessor`。
-3. `SmtcListener` 启动 SMTC 轮询线程，同时启动 `lyrics_ws` 服务端。
+2. `App::default()` 创建 `WsMediaListener` 和 `AudioProcessor`。
+3. `WsMediaListener::new()` 启动 `lyrics_ws` WebSocket 服务端，并 spawn `ws_media_loop()` 事件循环。
 4. EchoMusic 插件连接 `ws://127.0.0.1:17195` 后发送 `subscribe`/`ping`/`MusicData`。
-5. `lyrics_ws` 将事件转给 `smtc.rs`；`smtc.rs` 校验曲目匹配后把歌词/封面合并到 `MediaInfo`。
-6. 每次重绘时 `window/app.rs` 获取 `MediaInfo` 和音频频谱，传给 `core/render.rs`。
+5. `lyrics_ws` 将事件通过 mpsc 转发到 `ws_media_loop`；`ws_media.rs` 校验曲目匹配后把歌词/封面合并到 `MediaInfo`，通过 `watch::channel` 暴露。
+6. 每次重绘时 `window/app.rs` 通过 `get_info()` 获取 `MediaInfo`，从 `AudioProcessor` 取频谱，传给 `core/render.rs`。
 7. `render.rs` 根据配置选择默认、glass、mica、dynamic 或 liquid_glass 背景，并调用 `ui/expanded` 绘制展开页。
 
 ## 修改注意事项
@@ -135,7 +137,7 @@ cargo build --release --verbose --target x86_64-pc-windows-msvc
 - `unsafe` 块必须有 `// SAFETY:` 注释说明安全性；Windows API 调用优先使用 `windows` crate。
 - 修改绘制逻辑优先在 `src/core/render.rs`、`src/ui/expanded/` 或对应 `utils/*glass*` 模块内完成，保持模块职责单一。
 - 修改设置项时同步考虑：`AppConfig` 字段、默认值、设置窗口 UI、配置持久化兼容性，以及 PR 描述中的兼容性说明。
-- 修改 Lyrics-bridge 对接逻辑时先阅读 [接口文档.md](https://raw.githubusercontent.com/xiaotian2333/Lyrics-bridge/refs/heads/main/docs/%E6%8E%A5%E5%8F%A3%E6%96%87%E6%A1%A3.md)。
+- 修改 Lyrics-bridge 对接逻辑时先阅读根目录的 [接口文档.md](接口文档.md)。
 - `WDA_EXCLUDEFROMCAPTURE` 当前有意不启用；涉及截图排除、玻璃背景或捕获逻辑时先查看 `glass.rs`、`liquid_glass.rs`、`backdrop.rs` 的注释和现有取舍。
 - 项目已有 `.ai/ARCHITECTURE.md`、`.ai/STYLE-GUIDE.md` 和 `AGENTS.md`，其中包含更细的模块说明和 agent 行为规则；改动前可先查看对应文件。
 - 不要自行执行 `git add`、`git commit` 或 `git push`，除非用户明确要求。

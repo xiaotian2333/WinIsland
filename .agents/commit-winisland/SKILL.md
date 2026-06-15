@@ -35,7 +35,7 @@ Match the scope to the module or subsystem affected:
 | Scope | Module |
 |-------|--------|
 | `lyrics` | `src/core/lyrics.rs` or lyrics-related changes |
-| `smtc` | `src/core/smtc.rs` — SMTC/media integration |
+| `ws-media` | `src/core/ws_media.rs` — WebSocket media bridge |
 | `render` | `src/core/render.rs` — rendering |
 | `glass` | `src/utils/glass.rs` — glass effect |
 | `liquid-glass` | `src/utils/liquid_glass.rs` — liquid glass effect |
