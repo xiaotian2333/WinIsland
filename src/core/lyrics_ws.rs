@@ -1,4 +1,4 @@
-use crate::core::config::APP_HOMEPAGE;
+use crate::core::config::{is_valid_color, APP_HOMEPAGE};
 use crate::core::lyrics::{MusicData, parse_music_data_payload};
 use crate::core::persistence;
 use crate::utils::font::FontManager;
@@ -420,6 +420,13 @@ where
 }
 
 fn apply_config_field(path: &str, value: &Value) {
+    if matches!(
+        path,
+        "lyrics_char_color_unplayed" | "lyrics_char_color_played"
+    ) && !value.as_str().is_some_and(is_valid_color)
+    {
+        return;
+    }
     let config = persistence::load_config();
     if let Ok(mut val) = serde_json::to_value(&config)
         && let Some(obj) = val.as_object_mut()

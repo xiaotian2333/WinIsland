@@ -7,7 +7,7 @@ use windows::Win32::Foundation::CloseHandle;
 use windows::Win32::System::Threading::{MUTEX_ALL_ACCESS, OpenMutexW};
 use windows::core::w;
 
-use crate::core::config::{APP_AUTHOR, APP_HOMEPAGE, APP_VERSION, AppConfig};
+use crate::core::config::{is_valid_color, APP_AUTHOR, APP_HOMEPAGE, APP_VERSION, AppConfig};
 use crate::core::i18n::{current_lang, init_i18n, tr};
 use crate::core::persistence::{load_config, save_config};
 use crate::utils::autostart::set_autostart;
@@ -284,6 +284,13 @@ fn normalize_config(config: &mut AppConfig) {
     }
     if !matches!(config.expanded_cover_shape.as_str(), "square" | "circle") {
         config.expanded_cover_shape = AppConfig::default().expanded_cover_shape;
+    }
+
+    if !is_valid_color(&config.lyrics_char_color_unplayed) {
+        config.lyrics_char_color_unplayed = AppConfig::default().lyrics_char_color_unplayed;
+    }
+    if !is_valid_color(&config.lyrics_char_color_played) {
+        config.lyrics_char_color_played = AppConfig::default().lyrics_char_color_played;
     }
 }
 

@@ -351,6 +351,15 @@ fn default_lyrics_char_color_played() -> String {
     "auto".to_string()
 }
 
+pub fn is_valid_color(s: &str) -> bool {
+    let s = s.trim();
+    if s.eq_ignore_ascii_case("auto") {
+        return true;
+    }
+    let hex = s.strip_prefix('#').unwrap_or(s);
+    hex.len() == 6 && hex.chars().all(|c| c.is_ascii_hexdigit())
+}
+
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
