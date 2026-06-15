@@ -1,5 +1,10 @@
+@font-face {
+  font-family: "AppBuiltinFont";
+  src: url("./font.ttf") format("truetype-variations");
+}
+
 :root {
-  font-family: "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+  font-family: "AppBuiltinFont", "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
   color: #20242c;
   background: #f5f6f8;
   font-synthesis: none;

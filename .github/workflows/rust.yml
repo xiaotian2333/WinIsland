@@ -68,6 +68,19 @@ jobs:
         "tag_name=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
         "cargo_version=$cargoVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
+    - name: Download built-in font
+      shell: pwsh
+      env:
+        FONT_URL: ${{ vars.BUILTIN_FONT_URL }}
+      run: |
+        if ($env:FONT_URL) {
+          Write-Host "Downloading built-in font from $env:FONT_URL"
+          New-Item -Force -ItemType Directory -Path resources | Out-Null
+          Invoke-WebRequest -Uri $env:FONT_URL -OutFile resources/font.ttf
+        } else {
+          Write-Host "BUILTIN_FONT_URL not set, skipping font download"
+        }
+
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:

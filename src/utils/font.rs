@@ -1,5 +1,8 @@
 use crate::core::persistence::load_config;
-use skia_safe::{Canvas, Font, FontMgr, FontStyle, Paint, Typeface};
+use skia_safe::{
+    font_arguments::{variation_position, FontArguments, VariationPosition},
+    Canvas, Font, FontMgr, FontStyle, FourByteTag, Paint, Typeface,
+};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
@@ -31,7 +34,11 @@ thread_local! {
     static FALLBACK_CACHE: RefCell<HashMap<(char, u32), Typeface>> = RefCell::new(HashMap::new());
     static TEXT_CACHE: RefCell<TextCacheMap> = RefCell::new(HashMap::new());
     static CUSTOM_TYPEFACE: RefCell<Option<(String, Typeface)>> = const { RefCell::new(None) };
+    static WEIGHT_CLONE_CACHE: RefCell<HashMap<i32, Typeface>> = RefCell::new(HashMap::new());
 }
+
+#[cfg(has_builtin_font)]
+static BUILTIN_TYPEFACE: OnceLock<Typeface> = OnceLock::new();
 
 const FALLBACK_CACHE_LIMIT: usize = 2000;
 const TEXT_CACHE_LIMIT: usize = 500;
@@ -89,6 +96,59 @@ fn get_custom_typeface() -> Option<Typeface> {
     }
 }
 
+/// 尝试获取编译时内嵌的内置字体。
+/// 仅在 cfg(has_builtin_font) 时存在；否则返回 None。
+fn get_builtin_typeface() -> Option<&'static Typeface> {
+    #[cfg(has_builtin_font)]
+    {
+        Some(BUILTIN_TYPEFACE.get_or_init(|| {
+            let data = include_bytes!("../../resources/font.ttf");
+            FONT_MGR
+                .with(|mgr| mgr.new_from_data(data, None))
+                .expect("MiSans VF 内嵌字体加载失败")
+        }))
+    }
+    #[cfg(not(has_builtin_font))]
+    {
+        None
+    }
+}
+
+/// 如果字型支持 wght 轴且请求字重在范围内，返回调整后的克隆；
+/// 否则直接返回原字型的 clone。
+fn with_weight(tf: &Typeface, weight: i32) -> Typeface {
+    if let Some(cached) = WEIGHT_CLONE_CACHE.with(|c| c.borrow().get(&weight).cloned()) {
+        return cached;
+    }
+
+    let has_wght = tf
+        .variation_design_parameters()
+        .is_some_and(|params| {
+            params.iter().any(|axis| {
+                axis.tag == FourByteTag::from_chars('w', 'g', 'h', 't')
+                    && weight as f32 >= axis.min
+                    && weight as f32 <= axis.max
+            })
+        });
+
+    let result = if has_wght {
+        let coord = variation_position::Coordinate {
+            axis: FourByteTag::from_chars('w', 'g', 'h', 't'),
+            value: weight as f32,
+        };
+        let pos = VariationPosition {
+            coordinates: std::slice::from_ref(&coord),
+        };
+        let args = FontArguments::new().set_variation_design_position(pos);
+        tf.clone_with_arguments(&args).unwrap_or_else(|| tf.clone())
+    } else {
+        tf.clone()
+    };
+
+    WEIGHT_CLONE_CACHE.with(|c| c.borrow_mut().insert(weight, result.clone()));
+    result
+}
+
 fn get_typeface_for_char(c: char, style: FontStyle) -> (Typeface, bool) {
     let s_key = style_to_key(style);
     FALLBACK_CACHE.with(|cache| {
@@ -99,6 +159,18 @@ fn get_typeface_for_char(c: char, style: FontStyle) -> (Typeface, bool) {
             return (tf.clone(), embolden);
         }
 
+        // 优先尝试内嵌字体
+        if let Some(base) = get_builtin_typeface() {
+            let mut glyphs = [0u16; 1];
+            base.unichars_to_glyphs(&[c as i32], &mut glyphs);
+            if glyphs[0] != 0 {
+                let tf = with_weight(base, *style.weight());
+                cache.insert((c, s_key), tf.clone());
+                return (tf, false);
+            }
+        }
+
+        // 其次尝试用户设置的自定义字体
         if let Some(tf) = get_custom_typeface() {
             let mut glyphs = [0u16; 1];
             tf.unichars_to_glyphs(&[c as i32], &mut glyphs);
@@ -109,6 +181,7 @@ fn get_typeface_for_char(c: char, style: FontStyle) -> (Typeface, bool) {
             }
         }
 
+        // 最后系统 fallback
         let tf = FONT_MGR
             .with(|mgr| {
                 mgr.match_family_style_character("", style, &["zh-CN", "ja-JP", "en-US"], c as i32)
@@ -131,12 +204,18 @@ fn compute_text_groups(text: &str, size: f32, style: FontStyle) -> (f32, TextGro
     let mut groups: TextGroups = Vec::new();
 
     if is_ascii_text(text) {
-        let tf = FONT_MGR.with(|mgr| {
-            mgr.match_family_style("Microsoft YaHei", style)
-                .or_else(|| mgr.match_family_style("Segoe UI", style))
-                .unwrap_or_else(|| mgr.legacy_make_typeface(None, style).unwrap())
-        });
-        let embolden = needs_synthetic_bold(&tf, style);
+        let (tf, embolden) = if let Some(base) = get_builtin_typeface() {
+            // 内嵌字体优先，使用 with_weight 获得实际字重
+            (with_weight(base, *style.weight()), false)
+        } else {
+            let tf = FONT_MGR.with(|mgr| {
+                mgr.match_family_style("Microsoft YaHei", style)
+                    .or_else(|| mgr.match_family_style("Segoe UI", style))
+                    .unwrap_or_else(|| mgr.legacy_make_typeface(None, style).unwrap())
+            });
+            let embolden = needs_synthetic_bold(&tf, style);
+            (tf, embolden)
+        };
         let mut font = Font::from_typeface(tf.clone(), size);
         if embolden {
             font.set_embolden(true);
@@ -235,6 +314,9 @@ impl FontManager {
             cache.borrow_mut().clear();
         });
         FALLBACK_CACHE.with(|cache| {
+            cache.borrow_mut().clear();
+        });
+        WEIGHT_CLONE_CACHE.with(|cache| {
             cache.borrow_mut().clear();
         });
     }
