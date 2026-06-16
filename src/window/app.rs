@@ -1183,6 +1183,12 @@ impl ApplicationHandler for App {
         }
     }
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        if self.media.is_disabled() {
+            Self::close_settings_window();
+            event_loop.exit();
+            return;
+        }
+
         let window = match self.window.clone() {
             Some(w) => w,
             None => return,

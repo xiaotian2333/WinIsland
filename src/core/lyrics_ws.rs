@@ -48,6 +48,7 @@ pub enum LyricsWsEvent {
         action: PlayAction,
         position_ms: u64,
     },
+    PluginDisabled,
 }
 
 #[derive(Clone)]
@@ -295,6 +296,9 @@ where
                     }
                     Some("open_homepage") => {
                         let _ = open::that(APP_HOMEPAGE);
+                    }
+                    Some("disabled") => {
+                        let _ = event_tx.send(LyricsWsEvent::PluginDisabled);
                     }
                     _ => {
                         handle_plugin_command(payload, event_tx).await?;

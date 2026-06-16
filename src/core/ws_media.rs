@@ -3,6 +3,8 @@ use crate::core::lyrics_ws::{LyricsWsEvent, LyricsWsHandle, PlayAction, start_ly
 use crate::core::media_info::MediaInfo;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, watch};
 use tokio_util::sync::CancellationToken;
@@ -20,6 +22,7 @@ pub struct WsMediaListener {
     playback_tx: mpsc::UnboundedSender<PlaybackCommand>,
     lyrics_ws_handle: LyricsWsHandle,
     _cancel_token: CancellationToken,
+    disabled: Arc<AtomicBool>,
 }
 
 impl WsMediaListener {
@@ -30,9 +33,11 @@ impl WsMediaListener {
         let (lyrics_event_tx, lyrics_event_rx) = mpsc::unbounded_channel();
         let cancel_token = CancellationToken::new();
         let lyrics_ws_handle = start_lyrics_ws_server(lyrics_event_tx, cancel_token.clone());
+        let disabled = Arc::new(AtomicBool::new(false));
 
         let cancel = cancel_token.clone();
         let handle = lyrics_ws_handle.clone();
+        let ws_disabled = disabled.clone();
         tokio::spawn(async move {
             ws_media_loop(
                 info_tx,
@@ -41,6 +46,7 @@ impl WsMediaListener {
                 lyrics_event_rx,
                 handle,
                 cancel,
+                ws_disabled,
             )
             .await;
         });
@@ -51,7 +57,12 @@ impl WsMediaListener {
             playback_tx,
             lyrics_ws_handle: lyrics_ws_handle.clone(),
             _cancel_token: cancel_token,
+            disabled,
         }
+    }
+
+    pub fn is_disabled(&self) -> bool {
+        self.disabled.load(Ordering::Relaxed)
     }
 
     pub fn get_info(&self) -> MediaInfo {
@@ -92,6 +103,7 @@ async fn ws_media_loop(
     mut lyrics_event_rx: mpsc::UnboundedReceiver<LyricsWsEvent>,
     lyrics_ws_handle: LyricsWsHandle,
     cancel: CancellationToken,
+    disabled: Arc<AtomicBool>,
 ) {
     let mut state = MediaInfo::default();
     let _ = info_tx.send(state.clone());
@@ -128,6 +140,10 @@ async fn ws_media_loop(
 
             event = lyrics_event_rx.recv() => {
                 let Some(event) = event else { break };
+                if matches!(event, LyricsWsEvent::PluginDisabled) {
+                    disabled.store(true, Ordering::Relaxed);
+                    break;
+                }
                 handle_ws_event(event, &mut state, &info_tx, &lyrics_ws_handle);
             }
         }
@@ -197,6 +213,9 @@ fn handle_ws_event(
             }
             let _ = info_tx.send(state.clone());
         }
+            LyricsWsEvent::PluginDisabled => {
+                // 已在 ws_media_loop 中处理，不会到达此处
+            }
     }
 }
 
