@@ -22,6 +22,7 @@ pub enum LyricsWsCommand {
     Prev,
     GetPlaybackState,
     RequestMusicData,
+    ShowMainWindow,
     ConfigSnapshot,
 }
 
@@ -92,6 +93,10 @@ impl LyricsWsHandle {
 
     pub fn request_music_data(&self) {
         let _ = self.command_tx.send(LyricsWsCommand::RequestMusicData);
+    }
+
+    pub fn show_main_window(&self) {
+        let _ = self.command_tx.send(LyricsWsCommand::ShowMainWindow);
     }
 
     pub fn broadcast_config_snapshot(&self) {
@@ -195,6 +200,9 @@ async fn handle_client(
                     }
                     Ok(LyricsWsCommand::RequestMusicData) => {
                         send_command(&mut ws_write, "request_MusicData", None).await?;
+                    }
+                    Ok(LyricsWsCommand::ShowMainWindow) => {
+                        send_command(&mut ws_write, "show_main_window", None).await?;
                     }
                     Ok(LyricsWsCommand::ConfigSnapshot) => {
                         send_config_snapshot(&mut ws_write).await?;

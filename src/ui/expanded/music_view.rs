@@ -147,6 +147,31 @@ pub fn get_next_btn_rect(
     (btn_cx - hit / 2.0, btn_cy - hit / 2.0, hit, hit)
 }
 
+pub fn get_music_info_rect(
+    ox: f32,
+    oy: f32,
+    w: f32,
+    scale: f32,
+    cover_shape: &str,
+) -> (f32, f32, f32, f32) {
+    let (img_size, img_x, img_y) = if cover_shape == "circle" {
+        let s = 72.0 * scale * 1.08;
+        let x = ox + 28.0 * scale - (s - 72.0 * scale) / 2.0;
+        let y = oy + 24.0 * scale - (s - 72.0 * scale) / 2.0;
+        (s, x, y)
+    } else {
+        (72.0 * scale, ox + 28.0 * scale, oy + 24.0 * scale)
+    };
+    let text_x = img_x + img_size + 16.0 * scale;
+    let max_text_w = w - (text_x - ox) - 100.0 * scale;
+    let title_y = img_y + 26.0 * scale;
+    let artist_y = title_y + 22.0 * scale;
+    let padding = 8.0 * scale;
+    let right = (text_x + max_text_w).max(img_x + img_size);
+    let bottom = (artist_y + padding).max(img_y + img_size);
+    (img_x, img_y, right - img_x, bottom - img_y)
+}
+
 pub fn get_progress_bar_rect(
     ox: f32,
     oy: f32,

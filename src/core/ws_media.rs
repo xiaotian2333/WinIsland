@@ -85,6 +85,10 @@ impl WsMediaListener {
         let _ = self.playback_tx.send(PlaybackCommand::Prev);
     }
 
+    pub fn request_show_main_window(&self) {
+        self.lyrics_ws_handle.show_main_window();
+    }
+
     pub fn broadcast_config_snapshot(&self) {
         self.lyrics_ws_handle.broadcast_config_snapshot();
     }
