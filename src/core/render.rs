@@ -53,7 +53,10 @@ pub struct LyricsParams<'a> {
     pub current_lyric: &'a str,
     pub old_lyric: &'a str,
     pub lyric_transition: f32,
+    pub lyric_scroll_active: bool,
     pub lyric_scroll_offset: f32,
+    pub lyric_scroll_loop: bool,
+    pub lyric_scroll_loop_gap: f32,
     pub current_characters: Option<&'a [LyricCharacter]>,
     pub current_char_idx: Option<usize>,
     pub char_color_unplayed: Option<Color>,
@@ -126,7 +129,10 @@ pub fn draw_island(
         current_lyric,
         old_lyric,
         lyric_transition,
+        lyric_scroll_active,
         lyric_scroll_offset,
+        lyric_scroll_loop,
+        lyric_scroll_loop_gap,
         current_characters,
         current_char_idx,
         char_color_unplayed,
@@ -587,7 +593,7 @@ pub fn draw_island(
                 let space_left = offset_x + 30.0 * non_expanded_scale;
                 let space_right = offset_x + current_w - 29.0 * non_expanded_scale;
                 let available_w = space_right - space_left;
-                let scrolling = lyric_scroll_offset > 0.0;
+                let scrolling = lyric_scroll_active;
                 let text_x = if scrolling {
                     space_left - lyric_scroll_offset
                 } else {
@@ -748,13 +754,13 @@ pub fn draw_island(
                             if let Some(ref filter) = blur_filter {
                                 text_paint.set_image_filter(filter.clone());
                             }
+                            let current_text_w = FontManager::global().measure_text_cached(
+                                current_lyric,
+                                lyric_font_sz,
+                                skia_safe::FontStyle::normal(),
+                            );
                             let cur_lx = if text_centered {
-                                let w = FontManager::global().measure_text_cached(
-                                    current_lyric,
-                                    lyric_font_sz,
-                                    skia_safe::FontStyle::normal(),
-                                );
-                                text_x - w / 2.0
+                                text_x - current_text_w / 2.0
                             } else {
                                 text_x
                             };
@@ -767,6 +773,17 @@ pub fn draw_island(
                                 bold: false,
                                 paint: &text_paint,
                             });
+                            if lyric_scroll_loop && !text_centered {
+                                draw_text_cached(DrawTextCachedParams {
+                                    canvas,
+                                    text: current_lyric,
+                                    x: cur_lx + current_text_w + lyric_scroll_loop_gap,
+                                    y: text_y,
+                                    size: lyric_font_sz,
+                                    bold: false,
+                                    paint: &text_paint,
+                                });
+                            }
                         }
                     }
                 } else {
@@ -888,13 +905,13 @@ pub fn draw_island(
                                 text_color.g(),
                                 text_color.b(),
                             ));
+                            let current_text_w = FontManager::global().measure_text_cached(
+                                current_lyric,
+                                lyric_font_sz,
+                                skia_safe::FontStyle::normal(),
+                            );
                             let cur_lx2 = if text_centered {
-                                let w = FontManager::global().measure_text_cached(
-                                    current_lyric,
-                                    lyric_font_sz,
-                                    skia_safe::FontStyle::normal(),
-                                );
-                                text_x - w / 2.0
+                                text_x - current_text_w / 2.0
                             } else {
                                 text_x
                             };
@@ -907,6 +924,17 @@ pub fn draw_island(
                                 bold: false,
                                 paint: &text_paint,
                             });
+                            if lyric_scroll_loop && !text_centered {
+                                draw_text_cached(DrawTextCachedParams {
+                                    canvas,
+                                    text: current_lyric,
+                                    x: cur_lx2 + current_text_w + lyric_scroll_loop_gap,
+                                    y: text_y,
+                                    size: lyric_font_sz,
+                                    bold: false,
+                                    paint: &text_paint,
+                                });
+                            }
                         }
                     }
                 }

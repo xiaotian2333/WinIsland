@@ -32,6 +32,18 @@ const numberSpecs = {
   lyrics_scroll_max_width: { min: 100, max: 500, step: 10, precision: 0 },
 };
 
+function numberSpec(field) {
+  const spec = numberSpecs[field];
+  if (!spec) {
+    return null;
+  }
+  if (field !== "lyrics_scroll_max_width") {
+    return spec;
+  }
+  const min = Math.max(spec.min, Number(config?.base_width ?? 0) + 35);
+  return { ...spec, min, max: Math.max(spec.max, min) };
+}
+
 function invoke(command, args) {
   const tauri = window["__TAURI__"];
   if (!tauri?.core?.invoke) {
@@ -124,7 +136,7 @@ function setStatus(text) {
 }
 
 function clampNumber(field, value) {
-  const spec = numberSpecs[field];
+  const spec = numberSpec(field);
   if (!spec) {
     return value;
   }
@@ -139,8 +151,8 @@ function clampNumber(field, value) {
 }
 
 function formatNumber(field) {
-  const spec = numberSpecs[field];
-  const value = Number(config[field] ?? 0);
+  const spec = numberSpec(field);
+  const value = spec ? clampNumber(field, Number(config[field] ?? 0)) : Number(config[field] ?? 0);
   if (!spec || spec.precision === 0) {
     return String(Math.round(value));
   }
@@ -168,10 +180,16 @@ async function saveConfig() {
 }
 
 function setField(field, value) {
-  if (numberSpecs[field]) {
+  if (numberSpec(field)) {
     value = clampNumber(field, Number(value));
   }
   config[field] = value;
+  if (field === "base_width" || field === "lyrics_scroll_max_width") {
+    config.lyrics_scroll_max_width = clampNumber(
+      "lyrics_scroll_max_width",
+      Number(config.lyrics_scroll_max_width ?? 0),
+    );
+  }
   render();
   void saveConfig();
 }
@@ -205,8 +223,8 @@ function section(title, rows) {
   `;
 }
 
-function switchRow(label, field, enabled = true) {
-  const checked = config[field] ? "checked" : "";
+function switchRow(label, field, enabled = true, checkedValue = config[field]) {
+  const checked = checkedValue ? "checked" : "";
   const disabled = enabled ? "" : "disabled";
   const dim = enabled ? "" : " disabled";
   return `
@@ -237,7 +255,7 @@ function selectRow(label, field, options, enabled = true) {
 }
 
 function numberRow(label, field, enabled = true) {
-  const spec = numberSpecs[field];
+  const spec = numberSpec(field);
   const disabled = enabled ? "" : "disabled";
   const dim = enabled ? "" : " disabled";
   return `
@@ -432,6 +450,8 @@ function musicContent() {
   const lyricsOn = config.show_lyrics;
   const charColorEnabled = lyricsOn && config.lyrics_char_highlight;
   const regexEnabled = lyricsOn && config.lyrics_filter_scope !== "off";
+  const infiniteLoopEnabled = lyricsOn && config.lyrics_scroll && !config.lyrics_char_highlight;
+  const infiniteLoopChecked = config.lyrics_char_highlight ? false : config.lyrics_scroll_infinite_loop;
   return [
     section(tr("section_lyrics"), [
       switchRow(tr("show_lyrics"), "show_lyrics"),
@@ -440,6 +460,12 @@ function musicContent() {
       numberRow(tr("lyrics_delay"), "lyrics_delay", lyricsOn),
       switchRow(tr("lyrics_scroll"), "lyrics_scroll", lyricsOn),
       numberRow(tr("lyrics_scroll_max_width"), "lyrics_scroll_max_width", lyricsOn && config.lyrics_scroll),
+      switchRow(
+        tr("lyrics_scroll_infinite_loop"),
+        "lyrics_scroll_infinite_loop",
+        infiniteLoopEnabled,
+        infiniteLoopChecked,
+      ),
       selectRow(
         tr("lyrics_filter_scope"),
         "lyrics_filter_scope",

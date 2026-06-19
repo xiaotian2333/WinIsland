@@ -89,6 +89,7 @@ const TRANSLATION_KEYS: &[&str] = &[
     "lyrics_delay",
     "lyrics_scroll",
     "lyrics_scroll_max_width",
+    "lyrics_scroll_infinite_loop",
     "lyrics_filter_scope",
     "lyrics_filter_off",
     "lyrics_filter_desktop",
@@ -282,7 +283,10 @@ fn normalize_config(config: &mut AppConfig) {
     config.hover_to_hide_delay = round_to(config.hover_to_hide_delay, 0.1).clamp(0.2, 3.0);
     config.update_check_interval = config.update_check_interval.clamp(1.0, 24.0);
     config.lyrics_delay = round_to_f64(config.lyrics_delay, 0.1).clamp(-10.0, 10.0);
-    config.lyrics_scroll_max_width = config.lyrics_scroll_max_width.clamp(100.0, 500.0);
+    let lyrics_scroll_min_width = (config.base_width + 35.0).max(100.0);
+    config.lyrics_scroll_max_width = config
+        .lyrics_scroll_max_width
+        .clamp(lyrics_scroll_min_width, 500.0_f32.max(lyrics_scroll_min_width));
 
     if !matches!(config.language.as_str(), "auto" | "en" | "zh") {
         config.language = AppConfig::default().language;

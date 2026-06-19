@@ -180,6 +180,8 @@ pub struct AppConfig {
     pub lyrics_scroll: bool,
     #[serde(default = "default_lyrics_scroll_max_width")]
     pub lyrics_scroll_max_width: f32,
+    #[serde(default = "default_lyrics_scroll_infinite_loop")]
+    pub lyrics_scroll_infinite_loop: bool,
     #[serde(default = "default_lyrics_filter_scope")]
     pub lyrics_filter_scope: LyricsFilterScope,
     #[serde(default = "default_lyrics_filter_regex")]
@@ -274,6 +276,10 @@ fn default_lyrics_scroll() -> bool {
 
 fn default_lyrics_scroll_max_width() -> f32 {
     300.0
+}
+
+fn default_lyrics_scroll_infinite_loop() -> bool {
+    false
 }
 
 fn default_lyrics_filter_scope() -> LyricsFilterScope {
@@ -378,6 +384,7 @@ impl Default for AppConfig {
             lyrics_delay: 0.0,
             lyrics_scroll: false,
             lyrics_scroll_max_width: 300.0,
+            lyrics_scroll_infinite_loop: false,
             lyrics_filter_scope: LyricsFilterScope::Desktop,
             lyrics_filter_regex: DEFAULT_LYRICS_FILTER_REGEX.to_string(),
             position_x_offset: 0,
