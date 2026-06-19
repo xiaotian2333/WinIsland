@@ -10,6 +10,9 @@ let saveId = 0;
 let statusText = "";
 let appIconUrl = "";
 let appIconDarkUrl = "";
+let customFontStyle = null;
+let customFontUrl = "";
+let customFontPath = "";
 
 const numberSpecs = {
   non_expanded_scale: { min: 0.5, max: 5, step: 0.05, precision: 2 },
@@ -56,6 +59,15 @@ function blobUrlFromBytes(iconBytes) {
   return URL.createObjectURL(new Blob([new Uint8Array(iconBytes)], { type: "image/png" }));
 }
 
+function bytesFromBase64(b64) {
+  const binaryStr = atob(b64);
+  const bytes = new Uint8Array(binaryStr.length);
+  for (let i = 0; i < binaryStr.length; i++) {
+    bytes[i] = binaryStr.charCodeAt(i);
+  }
+  return bytes;
+}
+
 function updateAppIconUrls() {
   if (!appIconUrl) {
     appIconUrl = blobUrlFromBytes(state?.app?.icon_png);
@@ -71,6 +83,7 @@ function applyState(nextState) {
   updateAppIconUrls();
   applyTheme();
   render();
+  void loadCustomFont();
 }
 
 function appLogo(className, iconUrl) {
@@ -388,6 +401,7 @@ function fontPicker() {
   const label = hasFont ? tr("font_preview_custom") : tr("font_preview_default");
   const path = hasFont ? `<div class="path-text">${h(config.custom_font_path)}</div>` : "";
   const reset = hasFont ? `<button class="secondary-button" data-action="reset-font">${h(tr("font_reset"))}</button>` : "";
+  const previewClass = hasFont ? " custom-font-preview" : "";
   return `
     <div class="row font-row">
       <span>${h(tr("custom_font"))}</span>
@@ -396,7 +410,7 @@ function fontPicker() {
         ${reset}
       </div>
     </div>
-    <div class="font-preview">
+    <div class="font-preview${previewClass}">
       <span>${h(label)}</span>
       <strong>${h(tr("font_preview_sample"))}</strong>
       ${path}
@@ -618,11 +632,7 @@ async function loadBuiltinFont() {
   try {
     const b64 = await invoke("get_builtin_font");
     if (!b64) return;
-    const binaryStr = atob(b64);
-    const bytes = new Uint8Array(binaryStr.length);
-    for (let i = 0; i < binaryStr.length; i++) {
-      bytes[i] = binaryStr.charCodeAt(i);
-    }
+    const bytes = bytesFromBase64(b64);
     const blob = new Blob([bytes], { type: "font/otf" });
     const url = URL.createObjectURL(blob);
     const style = document.createElement("style");
@@ -631,6 +641,60 @@ async function loadBuiltinFont() {
     document.head.appendChild(style);
   } catch (e) {
     console.warn("Failed to load built-in font:", e);
+  }
+}
+
+function fontMimeFromPath(path) {
+  return path.toLowerCase().endsWith(".ttf") ? "font/ttf" : "font/otf";
+}
+
+function fontFormatFromPath(path) {
+  return path.toLowerCase().endsWith(".ttf") ? "truetype" : "opentype";
+}
+
+function clearCustomFont() {
+  customFontStyle?.remove();
+  customFontStyle = null;
+  if (customFontUrl) {
+    URL.revokeObjectURL(customFontUrl);
+  }
+  customFontUrl = "";
+  customFontPath = "";
+}
+
+async function loadCustomFont() {
+  const path = config?.custom_font_path || "";
+  if (!path) {
+    clearCustomFont();
+    return;
+  }
+  if (path === customFontPath) {
+    return;
+  }
+  try {
+    const b64 = await invoke("get_custom_font");
+    if (config?.custom_font_path !== path) {
+      return;
+    }
+    if (!b64) {
+      clearCustomFont();
+      return;
+    }
+    const bytes = bytesFromBase64(b64);
+    const url = URL.createObjectURL(new Blob([bytes], { type: fontMimeFromPath(path) }));
+    const style = document.createElement("style");
+    style.textContent =
+      `@font-face { font-family: "AppCustomFont"; src: url("${url}") format("${fontFormatFromPath(path)}"); font-display: swap; }`;
+    clearCustomFont();
+    customFontStyle = style;
+    customFontUrl = url;
+    customFontPath = path;
+    document.head.appendChild(style);
+  } catch (e) {
+    if (config?.custom_font_path === path) {
+      clearCustomFont();
+    }
+    console.warn("加载自定义字体失败:", e);
   }
 }
 

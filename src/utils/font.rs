@@ -1,13 +1,15 @@
-use crate::core::persistence::load_config;
-use skia_safe::{
-    font_arguments::{variation_position, FontArguments, VariationPosition},
-    Canvas, Font, FontMgr, FontStyle, FourByteTag, Paint, Typeface,
-};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
-use once_cell::sync::Lazy;
 use std::sync::OnceLock;
+
+use once_cell::sync::Lazy;
+use skia_safe::{
+    Canvas, Font, FontMgr, FontStyle, FourByteTag, Paint, Typeface,
+    font_arguments::{FontArguments, VariationPosition, variation_position},
+};
+
+use crate::core::persistence::load_config;
 
 static GLOBAL_FONT_MANAGER: OnceLock<FontManager> = OnceLock::new();
 
@@ -35,11 +37,12 @@ thread_local! {
     static FALLBACK_CACHE: RefCell<HashMap<(char, u32), Typeface>> = RefCell::new(HashMap::new());
     static TEXT_CACHE: RefCell<TextCacheMap> = RefCell::new(HashMap::new());
     static CUSTOM_TYPEFACE: RefCell<Option<(String, Typeface)>> = const { RefCell::new(None) };
-    static WEIGHT_CLONE_CACHE: RefCell<HashMap<i32, Typeface>> = RefCell::new(HashMap::new());
+    static WEIGHT_CLONE_CACHE: RefCell<HashMap<(u32, i32), Typeface>> = RefCell::new(HashMap::new());
 }
 
 #[cfg(has_builtin_font)]
-static BUILTIN_FONT_BYTES: Lazy<&[u8]> = Lazy::new(|| &include_bytes!("../../resources/font.otf")[..]);
+static BUILTIN_FONT_BYTES: Lazy<&[u8]> =
+    Lazy::new(|| &include_bytes!("../../resources/font.otf")[..]);
 #[cfg(has_builtin_font)]
 static BUILTIN_TYPEFACE: OnceLock<Typeface> = OnceLock::new();
 
@@ -76,6 +79,26 @@ fn needs_synthetic_bold(tf: &Typeface, style: FontStyle) -> bool {
     *style.weight() >= 600 && *tf.font_style().weight() < 600
 }
 
+fn load_typeface_from_data(data: &[u8]) -> Option<Typeface> {
+    FONT_MGR.with(|mgr| mgr.new_from_data(data, None))
+}
+
+fn load_typeface_from_path(path: &str) -> Option<Typeface> {
+    let data = std::fs::read(path).ok()?;
+    load_typeface_from_data(&data)
+}
+
+pub fn can_load_font_file(path: &str) -> bool {
+    load_typeface_from_path(path).is_some()
+}
+
+pub fn get_custom_font_data() -> Option<Vec<u8>> {
+    let path = load_config().custom_font_path?;
+    let data = std::fs::read(path).ok()?;
+    load_typeface_from_data(&data)?;
+    Some(data)
+}
+
 fn get_custom_typeface() -> Option<Typeface> {
     let config = load_config();
     if let Some(path) = config.custom_font_path {
@@ -86,9 +109,7 @@ fn get_custom_typeface() -> Option<Typeface> {
             {
                 return Some(tf.clone());
             }
-            if let Ok(data) = std::fs::read(&path)
-                && let Some(tf) = FONT_MGR.with(|mgr| mgr.new_from_data(&data, None))
-            {
+            if let Some(tf) = load_typeface_from_path(&path) {
                 *cache_mut = Some((path, tf.clone()));
                 return Some(tf);
             }
@@ -103,9 +124,13 @@ fn get_custom_typeface() -> Option<Typeface> {
 /// 仅在 cfg(has_builtin_font) 时存在；否则返回 None。
 pub fn get_builtin_font_data() -> Option<&'static [u8]> {
     #[cfg(has_builtin_font)]
-    { Some(*BUILTIN_FONT_BYTES) }
+    {
+        Some(*BUILTIN_FONT_BYTES)
+    }
     #[cfg(not(has_builtin_font))]
-    { None }
+    {
+        None
+    }
 }
 
 /// 尝试获取编译时内嵌的内置字体。
@@ -120,25 +145,26 @@ fn get_builtin_typeface() -> Option<&'static Typeface> {
         }))
     }
     #[cfg(not(has_builtin_font))]
-    { None }
+    {
+        None
+    }
 }
 
 /// 如果字型支持 wght 轴且请求字重在范围内，返回调整后的克隆；
 /// 否则直接返回原字型的 clone。
 fn with_weight(tf: &Typeface, weight: i32) -> Typeface {
-    if let Some(cached) = WEIGHT_CLONE_CACHE.with(|c| c.borrow().get(&weight).cloned()) {
+    let key = (tf.unique_id(), weight);
+    if let Some(cached) = WEIGHT_CLONE_CACHE.with(|c| c.borrow().get(&key).cloned()) {
         return cached;
     }
 
-    let has_wght = tf
-        .variation_design_parameters()
-        .is_some_and(|params| {
-            params.iter().any(|axis| {
-                axis.tag == FourByteTag::from_chars('w', 'g', 'h', 't')
-                    && weight as f32 >= axis.min
-                    && weight as f32 <= axis.max
-            })
-        });
+    let has_wght = tf.variation_design_parameters().is_some_and(|params| {
+        params.iter().any(|axis| {
+            axis.tag == FourByteTag::from_chars('w', 'g', 'h', 't')
+                && weight as f32 >= axis.min
+                && weight as f32 <= axis.max
+        })
+    });
 
     let result = if has_wght {
         let coord = variation_position::Coordinate {
@@ -154,8 +180,24 @@ fn with_weight(tf: &Typeface, weight: i32) -> Typeface {
         tf.clone()
     };
 
-    WEIGHT_CLONE_CACHE.with(|c| c.borrow_mut().insert(weight, result.clone()));
+    WEIGHT_CLONE_CACHE.with(|c| c.borrow_mut().insert(key, result.clone()));
     result
+}
+
+fn typeface_has_char(tf: &Typeface, c: char) -> bool {
+    let mut glyphs = [0u16; 1];
+    tf.unichars_to_glyphs(&[c as i32], &mut glyphs);
+    glyphs[0] != 0
+}
+
+fn typeface_has_text(tf: &Typeface, text: &str) -> bool {
+    text.chars().all(|c| typeface_has_char(tf, c))
+}
+
+fn styled_typeface(tf: &Typeface, style: FontStyle) -> (Typeface, bool) {
+    let tf = with_weight(tf, *style.weight());
+    let embolden = needs_synthetic_bold(&tf, style);
+    (tf, embolden)
 }
 
 fn get_typeface_for_char(c: char, style: FontStyle) -> (Typeface, bool) {
@@ -168,27 +210,22 @@ fn get_typeface_for_char(c: char, style: FontStyle) -> (Typeface, bool) {
             return (tf.clone(), embolden);
         }
 
-        // 优先尝试内嵌字体
-        if let Some(base) = get_builtin_typeface() {
-            let mut glyphs = [0u16; 1];
-            base.unichars_to_glyphs(&[c as i32], &mut glyphs);
-            if glyphs[0] != 0 {
-                let tf = with_weight(base, *style.weight());
-                let embolden = needs_synthetic_bold(&tf, style);
-                cache.insert((c, s_key), tf.clone());
-                return (tf, embolden);
-            }
+        // 优先尝试用户设置的自定义字体
+        if let Some(base) = get_custom_typeface()
+            && typeface_has_char(&base, c)
+        {
+            let (tf, embolden) = styled_typeface(&base, style);
+            cache.insert((c, s_key), tf.clone());
+            return (tf, embolden);
         }
 
-        // 其次尝试用户设置的自定义字体
-        if let Some(tf) = get_custom_typeface() {
-            let mut glyphs = [0u16; 1];
-            tf.unichars_to_glyphs(&[c as i32], &mut glyphs);
-            if glyphs[0] != 0 {
-                let embolden = needs_synthetic_bold(&tf, style);
-                cache.insert((c, s_key), tf.clone());
-                return (tf, embolden);
-            }
+        // 其次尝试内嵌字体
+        if let Some(base) = get_builtin_typeface()
+            && typeface_has_char(base, c)
+        {
+            let (tf, embolden) = styled_typeface(base, style);
+            cache.insert((c, s_key), tf.clone());
+            return (tf, embolden);
         }
 
         // 最后系统 fallback
@@ -207,17 +244,22 @@ fn is_ascii_text(text: &str) -> bool {
     text.bytes().all(|b| b.is_ascii())
 }
 
-/// Compute text groups and total width.
-/// Falls back to a single typeface for ASCII-only text to skip per-char lookups.
+/// 计算文本分组和总宽度。
+/// ASCII 文本优先使用单字型快速路径，减少逐字符查找。
 fn compute_text_groups(text: &str, size: f32, style: FontStyle) -> (f32, TextGroups) {
     let mut current_w = 0.0;
     let mut groups: TextGroups = Vec::new();
 
     if is_ascii_text(text) {
-        let (tf, embolden) = if let Some(base) = get_builtin_typeface() {
-            let tf = with_weight(base, *style.weight());
-            let embolden = needs_synthetic_bold(&tf, style);
-            (tf, embolden)
+        let custom = get_custom_typeface();
+        let single_typeface = if let Some(base) = custom.as_ref() {
+            if typeface_has_text(base, text) {
+                Some(styled_typeface(base, style))
+            } else {
+                None
+            }
+        } else if let Some(base) = get_builtin_typeface() {
+            Some(styled_typeface(base, style))
         } else {
             let tf = FONT_MGR.with(|mgr| {
                 mgr.match_family_style("Microsoft YaHei", style)
@@ -225,16 +267,19 @@ fn compute_text_groups(text: &str, size: f32, style: FontStyle) -> (f32, TextGro
                     .unwrap_or_else(|| mgr.legacy_make_typeface(None, style).unwrap())
             });
             let embolden = needs_synthetic_bold(&tf, style);
-            (tf, embolden)
+            Some((tf, embolden))
         };
-        let mut font = Font::from_typeface(tf.clone(), size);
-        if embolden {
-            font.set_embolden(true);
+
+        if let Some((tf, embolden)) = single_typeface {
+            let mut font = Font::from_typeface(tf.clone(), size);
+            if embolden {
+                font.set_embolden(true);
+            }
+            let (w, _) = font.measure_str(text, None);
+            current_w += w;
+            groups.push((text.to_string(), tf, embolden));
+            return (current_w, groups);
         }
-        let (w, _) = font.measure_str(text, None);
-        current_w += w;
-        groups.push((text.to_string(), tf, embolden));
-        return (current_w, groups);
     }
 
     let mut current_group = String::new();

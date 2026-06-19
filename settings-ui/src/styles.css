@@ -429,6 +429,10 @@ input:focus {
   letter-spacing: 0;
 }
 
+.font-preview.custom-font-preview strong {
+  font-family: "AppCustomFont", "AppBuiltinFont", "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+}
+
 .path-text {
   overflow: hidden;
   color: var(--muted);

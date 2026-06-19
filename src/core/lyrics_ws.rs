@@ -1,4 +1,4 @@
-use crate::core::config::{is_valid_color, APP_HOMEPAGE};
+use crate::core::config::{APP_HOMEPAGE, is_valid_color};
 use crate::core::lyrics::{MusicData, parse_music_data_payload};
 use crate::core::persistence;
 use crate::utils::font::FontManager;
@@ -294,6 +294,10 @@ where
                         .await
                         .unwrap_or(None);
                         if let Some(path) = path {
+                            if !crate::utils::font::can_load_font_file(&path) {
+                                log::warn!("无法加载所选字体文件: {}", path);
+                                return Ok(());
+                            }
                             apply_config_field("custom_font_path", &Value::String(path));
                             FontManager::global().refresh_custom_font();
                             let _ = command_tx.send(LyricsWsCommand::ConfigSnapshot);

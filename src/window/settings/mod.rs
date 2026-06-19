@@ -2,17 +2,17 @@ use std::collections::HashMap;
 use std::thread;
 use std::time::Duration;
 
+use base64::Engine;
 use serde::Serialize;
 use windows::Win32::Foundation::CloseHandle;
 use windows::Win32::System::Threading::{MUTEX_ALL_ACCESS, OpenMutexW};
 use windows::core::w;
 
-use crate::core::config::{is_valid_color, APP_AUTHOR, APP_HOMEPAGE, APP_VERSION, AppConfig};
+use crate::core::config::{APP_AUTHOR, APP_HOMEPAGE, APP_VERSION, AppConfig, is_valid_color};
 use crate::core::i18n::{current_lang, init_i18n, tr};
 use crate::core::persistence::{load_config, save_config};
 use crate::utils::autostart::set_autostart;
-use base64::Engine;
-use crate::utils::font::FontManager;
+use crate::utils::font::{FontManager, can_load_font_file};
 
 const SETTINGS_TITLE: &str = "EchoMusic-Lyrics-WinIsland Settings";
 const APP_ICON_PNG: &[u8] = include_bytes!("../../../resources/icon.png");
@@ -175,7 +175,11 @@ fn select_font_file() -> Result<SettingsState, String> {
         .add_filter("Fonts", &["ttf", "otf"])
         .pick_file()
     {
-        config.custom_font_path = Some(path.to_string_lossy().into_owned());
+        let path = path.to_string_lossy().into_owned();
+        if !can_load_font_file(&path) {
+            return Err("无法加载所选字体文件".to_string());
+        }
+        config.custom_font_path = Some(path);
         FontManager::global().refresh_custom_font();
         save_config(&config);
     }
@@ -208,6 +212,12 @@ fn get_builtin_font() -> Option<String> {
         .map(|data| base64::engine::general_purpose::STANDARD.encode(data))
 }
 
+#[tauri::command]
+fn get_custom_font() -> Option<String> {
+    crate::utils::font::get_custom_font_data()
+        .map(|data| base64::engine::general_purpose::STANDARD.encode(data))
+}
+
 pub fn run_settings(config: AppConfig) {
     init_i18n(&config.language);
 
@@ -225,6 +235,7 @@ pub fn run_settings(config: AppConfig) {
             check_updates_now,
             open_homepage,
             get_builtin_font,
+            get_custom_font,
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Tauri settings window");
