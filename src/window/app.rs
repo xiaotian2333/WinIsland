@@ -1,6 +1,8 @@
 use crate::core::audio::AudioProcessor;
 use crate::core::config::{AppConfig, DockPosition, LyricsFilterScope, PADDING, TOP_OFFSET, WINDOW_TITLE};
-use crate::core::lyrics::{current_lyric_index, filtered_lyric_text};
+use crate::core::lyrics::{
+    LyricCharacter, current_character_index, current_lyric_index, filtered_lyric_text,
+};
 use crate::core::media_info::MediaInfo;
 use crate::core::persistence::load_config;
 use crate::core::render::{draw_island, get_mini_control_rects};
@@ -168,6 +170,12 @@ struct IslandLayout {
     hide_distance: f64,
     hidden_handle_y: f64,
     hidden_handle_h: f64,
+}
+
+struct MiniLyricCharacterData<'a> {
+    characters: &'a [LyricCharacter],
+    char_idx: usize,
+    current_pos: u64,
 }
 
 impl App {
@@ -459,28 +467,80 @@ impl App {
         )
     }
 
+    fn measure_mini_lyric_characters_width(&self, characters: &[LyricCharacter]) -> f32 {
+        characters
+            .iter()
+            .map(|c| {
+                FontManager::global().measure_text_cached(
+                    &c.t,
+                    self.mini_lyric_font_size(),
+                    skia_safe::FontStyle::normal(),
+                )
+            })
+            .sum()
+    }
+
     fn mini_lyric_loop_gap(&self) -> f32 {
         MINI_LYRIC_LOOP_GAP * self.config.non_expanded_scale
     }
 
-    fn current_line_has_desktop_characters(&mut self, media: &MediaInfo) -> bool {
+    fn mini_lyric_character_scroll_offset(
+        &self,
+        data: &MiniLyricCharacterData<'_>,
+        available_text_w: f32,
+        overflow: f32,
+    ) -> f32 {
+        if overflow <= 0.0 {
+            return 0.0;
+        }
+
+        let mut play_x = 0.0;
+        for (idx, ch) in data.characters.iter().enumerate() {
+            let ch_w = FontManager::global().measure_text_cached(
+                &ch.t,
+                self.mini_lyric_font_size(),
+                skia_safe::FontStyle::normal(),
+            );
+            if idx < data.char_idx {
+                play_x += ch_w;
+                continue;
+            }
+            if idx == data.char_idx {
+                let progress = if ch.e > ch.s {
+                    ((data.current_pos.saturating_sub(ch.s)) as f32 / (ch.e - ch.s) as f32)
+                        .clamp(0.0, 1.0)
+                } else {
+                    0.5
+                };
+                play_x += ch_w * progress;
+                break;
+            }
+        }
+
+        (play_x - available_text_w / 2.0).clamp(0.0, overflow)
+    }
+
+    fn current_desktop_character_data<'a>(
+        &mut self,
+        media: &'a MediaInfo,
+    ) -> Option<MiniLyricCharacterData<'a>> {
         if !self.config.show_lyrics || !self.config.lyrics_char_highlight {
-            return false;
+            return None;
         }
         let Some(lyrics) = media.lyrics.as_ref() else {
-            return false;
+            return None;
         };
         let delay_ms = (self.config.lyrics_delay * 1000.0) as i64;
         let current_pos = media.effective_position_ms(delay_ms);
         let Some(idx) = current_lyric_index(lyrics, current_pos) else {
-            return false;
+            return None;
         };
         let line = &lyrics[idx];
         let Some(characters) = line.characters.as_ref() else {
-            return false;
+            return None;
         };
         if characters.is_empty() {
-            return false;
+            return None;
         }
         if self.config.lyrics_filter_scope.filters_desktop() {
             self.refresh_lyrics_filter_regex();
@@ -489,10 +549,15 @@ impl App {
                 .as_ref()
                 .is_some_and(|regex| regex.is_match(line.text.trim()))
             {
-                return false;
+                return None;
             }
         }
-        true
+        let char_idx = current_character_index(characters, current_pos)?;
+        Some(MiniLyricCharacterData {
+            characters,
+            char_idx,
+            current_pos,
+        })
     }
 
     fn handle_input(&mut self, state: ElementState, px: i32, py: i32) {
@@ -902,7 +967,7 @@ impl App {
         window: &Window,
         music_active: bool,
         is_paused: bool,
-        lyric_line_has_characters: bool,
+        lyric_character_data: Option<&MiniLyricCharacterData<'_>>,
         dt: f32,
     ) -> f32 {
         self.lyric_scroll_active = false;
@@ -919,16 +984,23 @@ impl App {
                     } else {
                         &self.old_lyric_text
                     };
+                    let character_text_w = lyric_character_data
+                        .map(|data| self.measure_mini_lyric_characters_width(data.characters));
                     let text_w = self.measure_lyric_text_width(display_text);
-                    let natural_w = 60.0 + text_w;
+                    let natural_text_w = character_text_w
+                        .map(|w| w / self.config.non_expanded_scale)
+                        .unwrap_or(text_w);
+                    let natural_w = 60.0 + natural_text_w;
                     let min_w = self.config.base_width + 35.0;
                     let max_w = self.config.lyrics_scroll_max_width.max(min_w);
                     if natural_w > max_w {
                         let fixed_w = max_w;
                         let available_text_w = (fixed_w - 59.0) * self.config.non_expanded_scale;
-                        let loop_scroll =
-                            self.config.lyrics_scroll_infinite_loop && !lyric_line_has_characters;
-                        let full_text_w = if loop_scroll {
+                        let loop_scroll = self.config.lyrics_scroll_infinite_loop
+                            && lyric_character_data.is_none();
+                        let full_text_w = if let Some(w) = character_text_w {
+                            w
+                        } else if loop_scroll {
                             self.measure_mini_lyric_render_width(display_text)
                         } else {
                             text_w * self.config.non_expanded_scale
@@ -936,8 +1008,17 @@ impl App {
                         let overflow = full_text_w - available_text_w;
                         let needs_scroll = overflow > 0.0;
                         self.lyric_scroll_active = needs_scroll;
-                        if needs_scroll && self.lyric_transition >= 1.0 && !is_paused {
-                            if loop_scroll {
+                        if needs_scroll && self.lyric_transition >= 1.0 {
+                            if let Some(data) = lyric_character_data {
+                                self.lyric_scroll_offset = self.mini_lyric_character_scroll_offset(
+                                    data,
+                                    available_text_w,
+                                    overflow,
+                                );
+                                if !is_paused {
+                                    window.request_redraw();
+                                }
+                            } else if !is_paused && loop_scroll {
                                 let cycle_w = full_text_w + self.mini_lyric_loop_gap();
                                 if self.lyric_scroll_pause > 0.0 {
                                     self.lyric_scroll_pause -= dt / 60.0;
@@ -949,7 +1030,7 @@ impl App {
                                     }
                                 }
                                 window.request_redraw();
-                            } else if self.lyric_scroll_offset < overflow {
+                            } else if !is_paused && self.lyric_scroll_offset < overflow {
                                 if self.lyric_scroll_pause > 0.0 {
                                     self.lyric_scroll_pause -= dt / 60.0;
                                 } else {
@@ -959,6 +1040,8 @@ impl App {
                                     }
                                 }
                                 window.request_redraw();
+                            } else if is_paused {
+                                self.lyric_scroll_offset = 0.0;
                             }
                         } else {
                             self.lyric_scroll_offset = 0.0;
@@ -1612,12 +1695,12 @@ impl ApplicationHandler for App {
             window.request_redraw();
         }
 
-        let lyric_line_has_characters = self.current_line_has_desktop_characters(&media);
+        let lyric_character_data = self.current_desktop_character_data(&media);
         let target_w = self.compute_lyric_target_width(
             &window,
             music_active,
             is_paused,
-            lyric_line_has_characters,
+            lyric_character_data.as_ref(),
             dt,
         );
         let target_h = if self.expanded {
