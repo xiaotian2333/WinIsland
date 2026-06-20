@@ -66,6 +66,7 @@ pub struct MusicMetadata {
     pub artist: String,
     pub artists: Vec<String>,
     pub cover: Option<Arc<Vec<u8>>>,
+    pub is_favorite: bool,
 }
 
 #[derive(Clone, Default, Debug)]
@@ -114,6 +115,10 @@ pub fn parse_music_data_payload(payload: &Value) -> Option<MusicData> {
                 None
             }
         });
+    let is_favorite = metadata
+        .get("is_favorite")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
 
     let lyrics = payload
         .get("lyrics")?
@@ -164,6 +169,7 @@ pub fn parse_music_data_payload(payload: &Value) -> Option<MusicData> {
             artist,
             artists,
             cover,
+            is_favorite,
         },
         lyrics: Arc::new(lyrics),
     })
@@ -289,7 +295,8 @@ mod tests {
                 "title": " 歌曲名 ",
                 "artist": "歌手 A、歌手 B",
                 "artists": ["歌手 A", "", " 歌手 B "],
-                "cover_base64": "AQIDBA=="
+                "cover_base64": "AQIDBA==",
+                "is_favorite": true
             },
             "lyrics": [
                 { "time_ms": 15620, "text": "第二句歌词" },
@@ -302,6 +309,7 @@ mod tests {
         assert_eq!(music_data.metadata.title, "歌曲名");
         assert_eq!(music_data.metadata.artist, "歌手 A、歌手 B");
         assert_eq!(music_data.metadata.artists, vec!["歌手 A", "歌手 B"]);
+        assert!(music_data.metadata.is_favorite);
         assert_eq!(
             music_data.metadata.cover.as_deref().map(Vec::as_slice),
             Some(&[1, 2, 3, 4][..])
@@ -352,6 +360,7 @@ mod tests {
 
         let music_data = parse_music_data_payload(&payload).expect("空歌词 MusicData 应被接受");
         assert_eq!(music_data.metadata.title, "歌曲名");
+        assert!(!music_data.metadata.is_favorite);
         assert!(music_data.lyrics.is_empty());
     }
 

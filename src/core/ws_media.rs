@@ -14,6 +14,10 @@ enum PlaybackCommand {
     Toggle,
     Next,
     Prev,
+    SetFavorite {
+        is_favorite: bool,
+        track_id: Option<String>,
+    },
 }
 
 pub struct WsMediaListener {
@@ -85,6 +89,13 @@ impl WsMediaListener {
         let _ = self.playback_tx.send(PlaybackCommand::Prev);
     }
 
+    pub fn request_set_favorite(&self, is_favorite: bool, track_id: Option<String>) {
+        let _ = self.playback_tx.send(PlaybackCommand::SetFavorite {
+            is_favorite,
+            track_id,
+        });
+    }
+
     pub fn request_show_main_window(&self) {
         self.lyrics_ws_handle.show_main_window();
         let hwnds = crate::utils::process::find_visible_windows_by_process_name("EchoMusic.exe");
@@ -147,6 +158,16 @@ async fn ws_media_loop(
                     PlaybackCommand::Toggle => lyrics_ws_handle.toggle_play(),
                     PlaybackCommand::Next => lyrics_ws_handle.next(),
                     PlaybackCommand::Prev => lyrics_ws_handle.prev(),
+                    PlaybackCommand::SetFavorite {
+                        is_favorite,
+                        track_id,
+                    } => {
+                        if favorite_target_matches(&state.track_id, track_id.as_deref()) {
+                            lyrics_ws_handle.set_favorite(is_favorite, track_id.clone());
+                            state.is_favorite = is_favorite;
+                            let _ = info_tx.send(state.clone());
+                        }
+                    }
                 }
             }
 
@@ -214,20 +235,44 @@ fn handle_ws_event(
                     state.last_update = Instant::now();
                 }
                 PlayAction::Next | PlayAction::Prev => {
+                    state.track_id = None;
                     state.title.clear();
                     state.artist.clear();
                     state.lyrics = None;
                     state.thumbnail = None;
                     state.thumbnail_hash = 0;
+                    state.is_favorite = false;
                     state.position_ms = 0;
                     state.last_update = Instant::now();
                 }
             }
             let _ = info_tx.send(state.clone());
         }
+        LyricsWsEvent::FavoriteState {
+            is_favorite,
+            track_id,
+        } => {
+            if favorite_target_matches(&state.track_id, track_id.as_deref()) {
+                if state.track_id.is_none() {
+                    state.track_id = track_id;
+                }
+                state.is_favorite = is_favorite;
+                let _ = info_tx.send(state.clone());
+            }
+        }
         LyricsWsEvent::PluginDisabled => {
             // 已在 ws_media_loop 中处理，不会到达此处
         }
+    }
+}
+
+fn favorite_target_matches(
+    current_track_id: &Option<String>,
+    incoming_track_id: Option<&str>,
+) -> bool {
+    match (current_track_id.as_deref(), incoming_track_id) {
+        (Some(current), Some(incoming)) => current == incoming,
+        _ => true,
     }
 }
 
@@ -277,9 +322,11 @@ fn apply_music_data(
     let metadata = &music_data.metadata;
 
     if state.title.trim().is_empty() {
+        state.track_id = metadata.track_id.clone();
         state.title = metadata.title.clone();
         state.artist = metadata.artist.clone();
         state.lyrics = Some(music_data.lyrics);
+        state.is_favorite = metadata.is_favorite;
         if let Some(ref cover) = metadata.cover {
             state.thumbnail = Some(cover.clone());
             state.thumbnail_hash = hash_thumbnail_bytes(cover);
@@ -315,6 +362,8 @@ fn apply_music_data(
     }
 
     state.lyrics = Some(music_data.lyrics);
+    state.track_id = metadata.track_id.clone();
+    state.is_favorite = metadata.is_favorite;
 
     if let Some(ref cover) = metadata.cover
         && cover.len() > 4
@@ -335,4 +384,28 @@ fn apply_music_data(
     }
 
     let _ = info_tx.send(state.clone());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn favorite_target_matches_same_track_id() {
+        let current = Some("123456".to_string());
+        assert!(favorite_target_matches(&current, Some("123456")));
+    }
+
+    #[test]
+    fn favorite_target_rejects_different_track_id() {
+        let current = Some("123456".to_string());
+        assert!(!favorite_target_matches(&current, Some("654321")));
+    }
+
+    #[test]
+    fn favorite_target_allows_missing_track_id() {
+        let current = Some("123456".to_string());
+        assert!(favorite_target_matches(&current, None));
+        assert!(favorite_target_matches(&None, Some("123456")));
+    }
 }

@@ -1,6 +1,8 @@
 use crate::core::media_info::MediaInfo;
 use crate::icons::arrows::draw_arrow_right;
-use crate::icons::controls::{draw_control_triangle, draw_pause_button, draw_play_button};
+use crate::icons::controls::{
+    draw_control_triangle, draw_pause_button, draw_play_button, draw_star_button,
+};
 use crate::utils::font::{DrawTextCachedParams, FontManager};
 use crate::utils::physics::Spring;
 use crate::utils::scroll::{ScrollDrawParams, ScrollText};
@@ -144,6 +146,29 @@ pub fn get_next_btn_rect(
     let btn_cy = bar_y + 42.0 * scale;
     let hit = 36.0 * scale;
     let btn_cx = ox + w / 2.0 + 75.0 * scale;
+    (btn_cx - hit / 2.0, btn_cy - hit / 2.0, hit, hit)
+}
+
+pub fn get_favorite_btn_rect(
+    ox: f32,
+    oy: f32,
+    _w: f32,
+    _h: f32,
+    scale: f32,
+    cover_shape: &str,
+) -> (f32, f32, f32, f32) {
+    let (img_size, img_x, img_y) = if cover_shape == "circle" {
+        let s = 72.0 * scale * 1.08;
+        let x = ox + 28.0 * scale - (s - 72.0 * scale) / 2.0;
+        let y = oy + 24.0 * scale - (s - 72.0 * scale) / 2.0;
+        (s, x, y)
+    } else {
+        (72.0 * scale, ox + 28.0 * scale, oy + 24.0 * scale)
+    };
+    let bar_y = img_y + img_size + 18.0 * scale;
+    let btn_cy = bar_y + 42.0 * scale;
+    let hit = 36.0 * scale;
+    let btn_cx = img_x + img_size / 2.0;
     (btn_cx - hit / 2.0, btn_cy - hit / 2.0, hit, hit)
 }
 
@@ -297,6 +322,7 @@ pub struct DrawMusicPageParams<'a> {
     pub font_size: f32,
     pub cover_shape: &'a str,
     pub cover_rotate: bool,
+    pub show_favorite_button: bool,
     pub dt: f32,
     pub text_color: Color,
     pub text_color_sec: Color,
@@ -334,6 +360,7 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
         font_size,
         cover_shape,
         cover_rotate,
+        show_favorite_button,
         dt,
         text_color,
         text_color_sec,
@@ -738,6 +765,23 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
         let btn_cx = ox + w / 2.0;
         let btn_cy = bar_center_y + bar_h / 2.0 + 42.0 * scale;
         let skip_gap = 75.0 * scale;
+
+        if show_favorite_button {
+            let (fav_x, _, fav_w, _) =
+                get_favorite_btn_rect(ox, oy, w, h, scale, cover_shape);
+            let fav_cx = fav_x + fav_w / 2.0;
+            let fav_color = if media.is_favorite {
+                text_color
+            } else {
+                text_color_sec
+            };
+            let fav_alpha = if media.is_favorite {
+                alpha
+            } else {
+                (alpha as f32 * 0.55) as u8
+            };
+            draw_star_button(canvas, fav_cx, btn_cy, fav_alpha, scale, fav_color);
+        }
 
         let prev_t = PREV_SKIP_ANIM.with(|cell| {
             let start = *cell.borrow();

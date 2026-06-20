@@ -64,3 +64,22 @@ pub fn draw_control_triangle(
         canvas.restore();
     }
 }
+
+pub fn draw_star_button(canvas: &Canvas, cx: f32, cy: f32, alpha: u8, scale: f32, color: Color) {
+    let mut paint = Paint::default();
+    paint.set_anti_alias(true);
+    paint.set_color(Color::from_argb(alpha, color.r(), color.g(), color.b()));
+    paint.set_style(skia_safe::paint::Style::Fill);
+
+    let path_data = "M288 24L354.4 179.2L522.2 193.8L395.4 304L433.4 468.2L288 383.2L142.6 468.2L180.6 304L53.8 193.8L221.6 179.2Z";
+
+    if let Some(path) = Path::from_svg(path_data) {
+        canvas.save();
+        canvas.translate((cx, cy));
+        let s = 0.062 * scale;
+        canvas.scale((s, s));
+        canvas.translate((-288.0, -256.0));
+        canvas.draw_path(&path, &paint);
+        canvas.restore();
+    }
+}

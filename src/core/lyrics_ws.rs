@@ -20,6 +20,10 @@ pub enum LyricsWsCommand {
     TogglePlay,
     Next,
     Prev,
+    SetFavorite {
+        is_favorite: bool,
+        track_id: Option<String>,
+    },
     GetPlaybackState,
     RequestMusicData,
     ShowMainWindow,
@@ -48,6 +52,10 @@ pub enum LyricsWsEvent {
     PlaybackAction {
         action: PlayAction,
         position_ms: u64,
+    },
+    FavoriteState {
+        is_favorite: bool,
+        track_id: Option<String>,
     },
     PluginDisabled,
 }
@@ -85,6 +93,13 @@ impl LyricsWsHandle {
 
     pub fn prev(&self) {
         let _ = self.command_tx.send(LyricsWsCommand::Prev);
+    }
+
+    pub fn set_favorite(&self, is_favorite: bool, track_id: Option<String>) {
+        let _ = self.command_tx.send(LyricsWsCommand::SetFavorite {
+            is_favorite,
+            track_id,
+        });
     }
 
     pub fn get_playback_state(&self) {
@@ -194,6 +209,19 @@ async fn handle_client(
                     }
                     Ok(LyricsWsCommand::Prev) => {
                         send_command(&mut ws_write, "prev", None).await?;
+                    }
+                    Ok(LyricsWsCommand::SetFavorite {
+                        is_favorite,
+                        track_id,
+                    }) => {
+                        let data = if let Some(track_id) =
+                            track_id.filter(|id| !id.trim().is_empty())
+                        {
+                            json!({ "id": track_id, "is_favorite": is_favorite })
+                        } else {
+                            json!({ "is_favorite": is_favorite })
+                        };
+                        send_command(&mut ws_write, "set_favorite", Some(data)).await?;
                     }
                     Ok(LyricsWsCommand::GetPlaybackState) => {
                         send_command(&mut ws_write, "get_playback_state", None).await?;
@@ -397,6 +425,24 @@ async fn handle_plugin_command(
                 position_ms: pos,
                 duration_ms: dur,
                 is_playing: playing,
+            });
+        }
+        "set_favorite" => {
+            let data = match payload.get("data") {
+                Some(d) => d,
+                None => return Ok(()),
+            };
+            let Some(is_favorite) = data.get("is_favorite").and_then(|v| v.as_bool()) else {
+                return Ok(());
+            };
+            let track_id = data
+                .get("id")
+                .and_then(|v| v.as_str())
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty());
+            let _ = event_tx.send(LyricsWsEvent::FavoriteState {
+                is_favorite,
+                track_id,
             });
         }
         _ => {}

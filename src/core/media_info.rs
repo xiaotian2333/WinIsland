@@ -6,10 +6,12 @@ use std::time::Instant;
 
 #[derive(Clone, Debug)]
 pub struct MediaInfo {
+    pub track_id: Option<String>,
     pub title: String,
     pub artist: String,
     pub album: String,
     pub is_playing: bool,
+    pub is_favorite: bool,
     pub thumbnail: Option<Arc<Vec<u8>>>,
     pub thumbnail_hash: u64,
     pub spectrum: [f32; 6],
@@ -22,10 +24,12 @@ pub struct MediaInfo {
 impl Default for MediaInfo {
     fn default() -> Self {
         Self {
+            track_id: None,
             title: String::new(),
             artist: String::new(),
             album: String::new(),
             is_playing: false,
+            is_favorite: false,
             thumbnail: None,
             thumbnail_hash: 0,
             spectrum: [0.0; 6],

@@ -58,6 +58,7 @@ hide_delay=Hide Delay (s)
 hover_to_hide=Hover to Hide
 hover_to_hide_distance=Hide Distance (px)
 hover_to_hide_delay=Hover Hide Delay (s)
+show_favorite_button=Favorite Button
 reset_defaults=Reset to Defaults
 visit_homepage=Visit Project Homepage
 created_by=Created by

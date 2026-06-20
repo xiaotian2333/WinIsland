@@ -8,9 +8,9 @@ use crate::core::persistence::load_config;
 use crate::core::render::{draw_island, get_mini_control_rects};
 use crate::core::ws_media::WsMediaListener;
 use crate::ui::expanded::music_view::{
-    get_music_info_rect, get_next_btn_rect, get_pause_btn_rect, get_prev_btn_rect,
-    get_progress_bar_rect, set_progress_dragging, set_progress_hover, trigger_cover_flip,
-    trigger_next_click, trigger_pause_click, trigger_prev_click,
+    get_favorite_btn_rect, get_music_info_rect, get_next_btn_rect, get_pause_btn_rect,
+    get_prev_btn_rect, get_progress_bar_rect, set_progress_dragging, set_progress_hover,
+    trigger_cover_flip, trigger_next_click, trigger_pause_click, trigger_prev_click,
 };
 use crate::utils::backdrop::{clear_mica_cache, disable_mica};
 use crate::utils::blur::calculate_blur_sigmas;
@@ -655,6 +655,26 @@ impl App {
                     trigger_cover_flip();
                     trigger_next_click();
                     self.media.request_next();
+                    return;
+                }
+
+                let (fx, fy, fw, fh) = get_favorite_btn_rect(
+                    offset_x as f32,
+                    island_y as f32,
+                    w as f32,
+                    h as f32,
+                    self.config.expanded_scale,
+                    &self.config.expanded_cover_shape,
+                );
+                if music_on
+                    && self.config.show_favorite_button
+                    && cx >= fx
+                    && cx <= fx + fw
+                    && cy >= fy
+                    && cy <= fy + fh
+                {
+                    self.media
+                        .request_set_favorite(!media.is_favorite, media.track_id.clone());
                     return;
                 }
 
@@ -1350,6 +1370,7 @@ impl ApplicationHandler for App {
                                     expanded_cover_shape: &self.config.expanded_cover_shape,
                                     cover_rotate: self.config.cover_rotate,
                                     mini_controls: self.config.mini_controls,
+                                    show_favorite_button: self.config.show_favorite_button,
                                     lyrics_delay: self.config.lyrics_delay,
                                     lyrics_filter_scope: self.config.lyrics_filter_scope,
                                     lyrics_filter_regex: self.lyrics_filter_regex_cache.as_ref(),
