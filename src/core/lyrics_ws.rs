@@ -57,6 +57,7 @@ pub enum LyricsWsEvent {
         is_favorite: bool,
         track_id: Option<String>,
     },
+    ShowMainWindow,
     PluginDisabled,
 }
 
@@ -444,6 +445,9 @@ async fn handle_plugin_command(
                 is_favorite,
                 track_id,
             });
+        }
+        "show_main_window" => {
+            let _ = event_tx.send(LyricsWsEvent::ShowMainWindow);
         }
         _ => {}
     }
