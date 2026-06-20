@@ -3,8 +3,8 @@ use crate::core::lyrics_ws::{LyricsWsEvent, LyricsWsHandle, PlayAction, start_ly
 use crate::core::media_info::MediaInfo;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, watch};
 use tokio_util::sync::CancellationToken;
@@ -87,6 +87,14 @@ impl WsMediaListener {
 
     pub fn request_show_main_window(&self) {
         self.lyrics_ws_handle.show_main_window();
+        let hwnds = crate::utils::process::find_visible_windows_by_process_name("EchoMusic.exe");
+        if hwnds.is_empty() {
+            log::debug!("未找到可抬起的 EchoMusic.exe 可见窗口");
+            return;
+        }
+        for hwnd in hwnds {
+            crate::utils::win32::restore_and_activate_window(hwnd);
+        }
     }
 
     pub fn broadcast_config_snapshot(&self) {
@@ -217,9 +225,9 @@ fn handle_ws_event(
             }
             let _ = info_tx.send(state.clone());
         }
-            LyricsWsEvent::PluginDisabled => {
-                // 已在 ws_media_loop 中处理，不会到达此处
-            }
+        LyricsWsEvent::PluginDisabled => {
+            // 已在 ws_media_loop 中处理，不会到达此处
+        }
     }
 }
 
