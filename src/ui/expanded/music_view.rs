@@ -14,6 +14,9 @@ use skia_safe::{
 use std::cell::RefCell;
 use std::collections::HashMap;
 
+const CONTROL_BUTTON_GAP: f32 = 75.0;
+const FAVORITE_BUTTON_SCALE: f32 = 1.12;
+
 thread_local! {
     static IMG_CACHE: RefCell<Option<(String, Image)>> = const { RefCell::new(None) };
     static COLOR_CACHE: RefCell<HashMap<String, Vec<Color>>> = RefCell::new(HashMap::new());
@@ -123,7 +126,7 @@ pub fn get_prev_btn_rect(
     let bar_y = img_y + img_size + 18.0 * scale;
     let btn_cy = bar_y + 42.0 * scale;
     let hit = 36.0 * scale;
-    let btn_cx = ox + w / 2.0 - 75.0 * scale;
+    let btn_cx = ox + w / 2.0 - CONTROL_BUTTON_GAP * scale;
     (btn_cx - hit / 2.0, btn_cy - hit / 2.0, hit, hit)
 }
 
@@ -145,30 +148,29 @@ pub fn get_next_btn_rect(
     let bar_y = img_y + img_size + 18.0 * scale;
     let btn_cy = bar_y + 42.0 * scale;
     let hit = 36.0 * scale;
-    let btn_cx = ox + w / 2.0 + 75.0 * scale;
+    let btn_cx = ox + w / 2.0 + CONTROL_BUTTON_GAP * scale;
     (btn_cx - hit / 2.0, btn_cy - hit / 2.0, hit, hit)
 }
 
 pub fn get_favorite_btn_rect(
     ox: f32,
     oy: f32,
-    _w: f32,
+    w: f32,
     _h: f32,
     scale: f32,
     cover_shape: &str,
 ) -> (f32, f32, f32, f32) {
-    let (img_size, img_x, img_y) = if cover_shape == "circle" {
+    let (img_size, img_y) = if cover_shape == "circle" {
         let s = 72.0 * scale * 1.08;
-        let x = ox + 28.0 * scale - (s - 72.0 * scale) / 2.0;
         let y = oy + 24.0 * scale - (s - 72.0 * scale) / 2.0;
-        (s, x, y)
+        (s, y)
     } else {
-        (72.0 * scale, ox + 28.0 * scale, oy + 24.0 * scale)
+        (72.0 * scale, oy + 24.0 * scale)
     };
     let bar_y = img_y + img_size + 18.0 * scale;
     let btn_cy = bar_y + 42.0 * scale;
-    let hit = 36.0 * scale;
-    let btn_cx = img_x + img_size / 2.0;
+    let hit = 36.0 * FAVORITE_BUTTON_SCALE * scale;
+    let btn_cx = ox + w / 2.0 - CONTROL_BUTTON_GAP * 2.0 * scale;
     (btn_cx - hit / 2.0, btn_cy - hit / 2.0, hit, hit)
 }
 
@@ -764,7 +766,7 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
 
         let btn_cx = ox + w / 2.0;
         let btn_cy = bar_center_y + bar_h / 2.0 + 42.0 * scale;
-        let skip_gap = 75.0 * scale;
+        let skip_gap = CONTROL_BUTTON_GAP * scale;
 
         if show_favorite_button {
             let (fav_x, _, fav_w, _) =
@@ -780,7 +782,14 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
             } else {
                 (alpha as f32 * 0.55) as u8
             };
-            draw_star_button(canvas, fav_cx, btn_cy, fav_alpha, scale, fav_color);
+            draw_star_button(
+                canvas,
+                fav_cx,
+                btn_cy,
+                fav_alpha,
+                scale * FAVORITE_BUTTON_SCALE,
+                fav_color,
+            );
         }
 
         let prev_t = PREV_SKIP_ANIM.with(|cell| {
