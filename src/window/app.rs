@@ -1279,18 +1279,19 @@ impl ApplicationHandler for App {
                         }
 
                         let delay_ms = (self.config.lyrics_delay * 1000.0) as i64;
-                        let mut char_data = if self.config.lyrics_char_highlight && self.config.show_lyrics {
-                            media_info.current_character_data(delay_ms)
-                        } else {
-                            None
-                        };
+                        let lyric_current_pos = media_info.effective_position_ms(delay_ms);
+                        let mut char_data =
+                            if self.config.lyrics_char_highlight && self.config.show_lyrics {
+                                media_info.current_character_data(delay_ms)
+                            } else {
+                                None
+                            };
                         if char_data.is_some() && self.config.lyrics_filter_scope.filters_desktop()
                         {
                             let lyrics = media_info.lyrics.as_ref();
-                            let current_pos = media_info.effective_position_ms(delay_ms);
                             let is_filtered = lyrics
                                 .and_then(|ly| {
-                                    let idx = current_lyric_index(ly, current_pos)?;
+                                    let idx = current_lyric_index(ly, lyric_current_pos)?;
                                     if self
                                         .lyrics_filter_regex_cache
                                         .as_ref()
@@ -1306,6 +1307,17 @@ impl ApplicationHandler for App {
                                 char_data = None;
                             }
                         }
+                        let current_char_progress = char_data.as_ref().and_then(|(chars, idx)| {
+                            chars.get(*idx).map(|ch| {
+                                if ch.e > ch.s {
+                                    ((lyric_current_pos.saturating_sub(ch.s)) as f32
+                                        / (ch.e - ch.s) as f32)
+                                        .clamp(0.0, 1.0)
+                                } else {
+                                    0.5
+                                }
+                            })
+                        });
                         let lyric_line_has_characters = char_data.is_some();
                         let current_characters = char_data.as_ref().map(|(c, _)| *c);
                         let current_char_idx = char_data.map(|(_, i)| i);
@@ -1350,6 +1362,7 @@ impl ApplicationHandler for App {
                                     lyric_scroll_loop_gap,
                                     current_characters,
                                     current_char_idx,
+                                    current_char_progress,
                                     char_color_unplayed,
                                     char_color_played,
                                     char_highlight: self.config.lyrics_char_highlight,

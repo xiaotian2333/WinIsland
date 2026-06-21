@@ -3,6 +3,7 @@ use crate::core::lyrics::{current_character_index, current_lyric_index};
 use crate::core::media_info::MediaInfo;
 use crate::icons::arrows::draw_arrow_left;
 use crate::ui::expanded::music_view::draw_text_cached;
+use crate::utils::color::{color_with_alpha, lyric_boundary_gradient_shader};
 use crate::utils::font::{DrawTextCachedParams, FontManager};
 use skia_safe::{Canvas, ClipOp, Color, FontStyle, Paint, Rect};
 use std::cell::RefCell;
@@ -342,7 +343,7 @@ pub fn draw_widget_page(
             let current_pos = (raw_pos as i64 + (lyrics_delay * 1000.0) as i64).max(0) as u64;
             let char_idx = current_character_index(chars, current_pos);
             if let Some(char_idx) = char_idx {
-                let total_w: f32 = chars
+                let char_widths = chars
                     .iter()
                     .map(|c| {
                         FontManager::global().measure_text_cached(
@@ -351,38 +352,50 @@ pub fn draw_widget_page(
                             FontStyle::normal(),
                         )
                     })
-                    .sum();
+                    .collect::<Vec<_>>();
+                let total_w: f32 = char_widths.iter().sum();
                 let char_base_y = line_y + 2.0;
                 let start_x = if should_scroll {
                     lyric_area_left + 2.0 * scale - current_scroll_offset
                 } else {
                     center_x - total_w / 2.0
                 };
+                let char_progress = chars
+                    .get(char_idx)
+                    .map(|ch| {
+                        if ch.e > ch.s {
+                            ((current_pos.saturating_sub(ch.s)) as f32 / (ch.e - ch.s) as f32)
+                                .clamp(0.0, 1.0)
+                        } else {
+                            0.5
+                        }
+                    })
+                    .unwrap_or(0.5);
+                let boundary_x = start_x
+                    + char_widths.iter().take(char_idx).sum::<f32>()
+                    + char_widths.get(char_idx).copied().unwrap_or(0.0) * char_progress;
                 let mut char_x = start_x;
+                let char_alpha = (text_alpha * 255.0).min(255.0) as u8;
+                let mut ch_paint = Paint::default();
+                ch_paint.set_anti_alias(true);
+                if let Some(shader) = lyric_boundary_gradient_shader(
+                    boundary_x,
+                    char_base_y,
+                    font_sz * 0.6,
+                    char_color_played,
+                    char_color_unplayed,
+                    char_alpha,
+                ) {
+                    ch_paint.set_shader(shader);
+                } else {
+                    ch_paint.set_color(color_with_alpha(char_color_unplayed, char_alpha));
+                }
                 for (ci, ch) in chars.iter().enumerate() {
                     let ch_y = if ci <= char_idx {
                         char_base_y - 3.0
                     } else {
                         char_base_y
                     };
-                    let ch_color = if ci <= char_idx {
-                        char_color_played
-                    } else {
-                        char_color_unplayed
-                    };
-                    let mut ch_paint = Paint::default();
-                    ch_paint.set_anti_alias(true);
-                    ch_paint.set_color(Color::from_argb(
-                        (text_alpha * 255.0).min(255.0) as u8,
-                        ch_color.r(),
-                        ch_color.g(),
-                        ch_color.b(),
-                    ));
-                    let ch_w = FontManager::global().measure_text_cached(
-                        &ch.t,
-                        font_sz,
-                        FontStyle::normal(),
-                    );
                     draw_text_cached(DrawTextCachedParams {
                         canvas,
                         text: &ch.t,
@@ -392,7 +405,7 @@ pub fn draw_widget_page(
                         bold: false,
                         paint: &ch_paint,
                     });
-                    char_x += ch_w;
+                    char_x += char_widths.get(ci).copied().unwrap_or(0.0);
                 }
                 continue;
             }
