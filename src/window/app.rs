@@ -1377,6 +1377,7 @@ impl ApplicationHandler for App {
                                     char_color_unplayed,
                                     char_color_played,
                                     char_highlight: self.config.lyrics_char_highlight,
+                                    char_lift_animation: self.config.lyrics_char_lift_animation,
                                 },
                                 window: crate::core::render::WindowParams {
                                     win_x: self.win_x,

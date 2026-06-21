@@ -99,6 +99,7 @@ const TRANSLATION_KEYS: &[&str] = &[
     "lyrics_filter_regex_placeholder",
     "lyrics_filter_invalid_regex",
     "lyrics_char_highlight",
+    "lyrics_char_lift_animation",
     "lyrics_char_color_unplayed",
     "lyrics_char_color_played",
     "lyrics_char_color_placeholder",

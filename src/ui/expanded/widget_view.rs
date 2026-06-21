@@ -142,6 +142,7 @@ pub fn draw_widget_page(
     char_color_unplayed: Color,
     char_color_played: Color,
     char_highlight: bool,
+    char_lift_animation: bool,
 ) -> bool {
     let arrow_alpha = alpha;
     if arrow_alpha > 0 {
@@ -354,7 +355,11 @@ pub fn draw_widget_page(
                     })
                     .collect::<Vec<_>>();
                 let total_w: f32 = char_widths.iter().sum();
-                let char_base_y = line_y + 2.0;
+                let char_base_y = if char_lift_animation {
+                    line_y + 2.0
+                } else {
+                    line_y
+                };
                 let start_x = if should_scroll {
                     lyric_area_left + 2.0 * scale - current_scroll_offset
                 } else {
@@ -391,8 +396,12 @@ pub fn draw_widget_page(
                     ch_paint.set_color(color_with_alpha(char_color_unplayed, char_alpha));
                 }
                 for (ci, ch) in chars.iter().enumerate() {
-                    let ch_y = if ci <= char_idx {
-                        char_base_y - 3.0
+                    let ch_y = if char_lift_animation {
+                        if ci <= char_idx {
+                            char_base_y - 3.0
+                        } else {
+                            char_base_y
+                        }
                     } else {
                         char_base_y
                     };

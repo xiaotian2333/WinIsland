@@ -64,6 +64,7 @@ pub struct LyricsParams<'a> {
     pub char_color_unplayed: Option<Color>,
     pub char_color_played: Option<Color>,
     pub char_highlight: bool,
+    pub char_lift_animation: bool,
 }
 
 pub struct WindowParams {
@@ -166,6 +167,7 @@ pub fn draw_island(
         char_color_unplayed,
         char_color_played,
         char_highlight,
+        char_lift_animation,
     } = lyrics;
     let WindowParams {
         win_x,
@@ -476,6 +478,7 @@ pub fn draw_island(
             resolved_char_unplayed,
             resolved_char_played,
             char_highlight,
+            char_lift_animation,
         );
         canvas.restore();
 
@@ -707,7 +710,11 @@ pub fn draw_island(
                             } else {
                                 text_x
                             };
-                            let char_base_y = text_y + 2.0;
+                            let char_base_y = if char_lift_animation {
+                                text_y + 2.0
+                            } else {
+                                text_y
+                            };
                             let char_progress = current_char_progress.unwrap_or(0.5);
                             let boundary_x = lyric_character_boundary_x(
                                 &char_widths,
@@ -716,23 +723,27 @@ pub fn draw_island(
                                 char_progress,
                             );
                             let mut char_x = start_x;
-                            let anim_progress = CHAR_LIFT_ANIM.with(|cell| {
-                                LAST_CHAR_IDX.with(|last| {
-                                    let mut last = last.borrow_mut();
-                                    if *last != Some(char_idx) {
-                                        *last = Some(char_idx);
-                                        cell.replace(0.0);
+                            let anim_progress = if char_lift_animation {
+                                CHAR_LIFT_ANIM.with(|cell| {
+                                    LAST_CHAR_IDX.with(|last| {
+                                        let mut last = last.borrow_mut();
+                                        if *last != Some(char_idx) {
+                                            *last = Some(char_idx);
+                                            cell.replace(0.0);
+                                        }
+                                    });
+                                    let val = *cell.borrow();
+                                    if val < 1.0 {
+                                        *cell.borrow_mut() += 0.25 * dt / 60.0;
+                                        if *cell.borrow() > 1.0 {
+                                            *cell.borrow_mut() = 1.0;
+                                        }
                                     }
-                                });
-                                let val = *cell.borrow();
-                                if val < 1.0 {
-                                    *cell.borrow_mut() += 0.25 * dt / 60.0;
-                                    if *cell.borrow() > 1.0 {
-                                        *cell.borrow_mut() = 1.0;
-                                    }
-                                }
-                                *cell.borrow()
-                            });
+                                    *cell.borrow()
+                                })
+                            } else {
+                                1.0
+                            };
                             let mut ch_paint = Paint::default();
                             ch_paint.set_anti_alias(true);
                             if let Some(shader) = lyric_boundary_gradient_shader(
@@ -754,10 +765,14 @@ pub fn draw_island(
                                 ch_paint.set_image_filter(filter.clone());
                             }
                             for (i, ch) in chars.iter().enumerate() {
-                                let ch_y = if i < char_idx {
-                                    char_base_y - 3.0
-                                } else if i == char_idx {
-                                    char_base_y - 3.0 * anim_progress
+                                let ch_y = if char_lift_animation {
+                                    if i < char_idx {
+                                        char_base_y - 3.0
+                                    } else if i == char_idx {
+                                        char_base_y - 3.0 * anim_progress
+                                    } else {
+                                        char_base_y
+                                    }
                                 } else {
                                     char_base_y
                                 };
@@ -860,7 +875,11 @@ pub fn draw_island(
                             } else {
                                 text_x
                             };
-                            let char_base_y = text_y + 2.0;
+                            let char_base_y = if char_lift_animation {
+                                text_y + 2.0
+                            } else {
+                                text_y
+                            };
                             let char_progress = current_char_progress.unwrap_or(0.5);
                             let boundary_x = lyric_character_boundary_x(
                                 &char_widths,
@@ -869,23 +888,27 @@ pub fn draw_island(
                                 char_progress,
                             );
                             let mut char_x = start_x;
-                            let anim_progress = CHAR_LIFT_ANIM.with(|cell| {
-                                LAST_CHAR_IDX.with(|last| {
-                                    let mut last = last.borrow_mut();
-                                    if *last != Some(char_idx) {
-                                        *last = Some(char_idx);
-                                        cell.replace(0.0);
+                            let anim_progress = if char_lift_animation {
+                                CHAR_LIFT_ANIM.with(|cell| {
+                                    LAST_CHAR_IDX.with(|last| {
+                                        let mut last = last.borrow_mut();
+                                        if *last != Some(char_idx) {
+                                            *last = Some(char_idx);
+                                            cell.replace(0.0);
+                                        }
+                                    });
+                                    let val = *cell.borrow();
+                                    if val < 1.0 {
+                                        *cell.borrow_mut() += 4.0 * dt / 60.0;
+                                        if *cell.borrow() > 1.0 {
+                                            *cell.borrow_mut() = 1.0;
+                                        }
                                     }
-                                });
-                                let val = *cell.borrow();
-                                if val < 1.0 {
-                                    *cell.borrow_mut() += 4.0 * dt / 60.0;
-                                    if *cell.borrow() > 1.0 {
-                                        *cell.borrow_mut() = 1.0;
-                                    }
-                                }
-                                *cell.borrow()
-                            });
+                                    *cell.borrow()
+                                })
+                            } else {
+                                1.0
+                            };
                             let mut ch_paint = Paint::default();
                             ch_paint.set_anti_alias(true);
                             if let Some(shader) = lyric_boundary_gradient_shader(
@@ -904,10 +927,14 @@ pub fn draw_island(
                                 ));
                             }
                             for (i, ch) in chars.iter().enumerate() {
-                                let ch_y = if i < char_idx {
-                                    char_base_y - 3.0
-                                } else if i == char_idx {
-                                    char_base_y - 3.0 * anim_progress
+                                let ch_y = if char_lift_animation {
+                                    if i < char_idx {
+                                        char_base_y - 3.0
+                                    } else if i == char_idx {
+                                        char_base_y - 3.0 * anim_progress
+                                    } else {
+                                        char_base_y
+                                    }
                                 } else {
                                     char_base_y
                                 };

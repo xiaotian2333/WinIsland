@@ -487,6 +487,7 @@ function musicContent() {
     ]),
     section(tr("lyrics_char_highlight"), [
       switchRow(tr("lyrics_char_highlight"), "lyrics_char_highlight", lyricsOn),
+      switchRow(tr("lyrics_char_lift_animation"), "lyrics_char_lift_animation", charColorEnabled),
       textRow(tr("lyrics_char_color_unplayed"), "lyrics_char_color_unplayed", tr("lyrics_char_color_placeholder"), charColorEnabled),
       textRow(tr("lyrics_char_color_played"), "lyrics_char_color_played", tr("lyrics_char_color_placeholder"), charColorEnabled),
     ]),

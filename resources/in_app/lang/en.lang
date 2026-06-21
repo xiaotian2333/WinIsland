@@ -78,6 +78,7 @@ lyrics_filter_regex=Filter Regex
 lyrics_filter_regex_placeholder=Enter regular expression
 lyrics_filter_invalid_regex=Invalid regular expression
 lyrics_char_highlight=Character Highlight
+lyrics_char_lift_animation=Character Lift Animation
 lyrics_char_color_unplayed=Unplayed Color
 lyrics_char_color_played=Played Color
 lyrics_char_color_placeholder=Auto or #RRGGBB

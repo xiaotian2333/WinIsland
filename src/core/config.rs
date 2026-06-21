@@ -214,6 +214,8 @@ pub struct AppConfig {
     pub show_favorite_button: bool,
     #[serde(default = "default_lyrics_char_highlight")]
     pub lyrics_char_highlight: bool,
+    #[serde(default = "default_lyrics_char_lift_animation")]
+    pub lyrics_char_lift_animation: bool,
     #[serde(default = "default_lyrics_char_color_unplayed")]
     pub lyrics_char_color_unplayed: String,
     #[serde(default = "default_lyrics_char_color_played")]
@@ -348,6 +350,10 @@ fn default_lyrics_char_highlight() -> bool {
     true
 }
 
+fn default_lyrics_char_lift_animation() -> bool {
+    true
+}
+
 fn default_lyrics_char_color_unplayed() -> String {
     "auto".to_string()
 }
@@ -407,6 +413,7 @@ impl Default for AppConfig {
             mini_controls: false,
             show_favorite_button: false,
             lyrics_char_highlight: true,
+            lyrics_char_lift_animation: true,
             lyrics_char_color_unplayed: "auto".to_string(),
             lyrics_char_color_played: "auto".to_string(),
         }
