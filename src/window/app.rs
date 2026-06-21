@@ -76,6 +76,7 @@ pub struct App {
     idle_timer: Instant,
     spring_hide: Spring,
     auto_hidden: bool,
+    hover_hidden: bool,
     is_dragging: bool,
     drag_start_py: i32,
     drag_start_hide_val: f32,
@@ -135,6 +136,7 @@ impl Default for App {
             idle_timer: Instant::now(),
             spring_hide: Spring::new(0.0),
             auto_hidden: false,
+            hover_hidden: false,
             is_dragging: false,
             drag_start_py: 0,
             drag_start_hide_val: 0.0,
@@ -179,6 +181,10 @@ struct MiniLyricCharacterData<'a> {
 }
 
 impl App {
+    fn is_hidden(&self) -> bool {
+        self.auto_hidden || self.hover_hidden || self.manually_hidden
+    }
+
     fn update_dock_position_from_process(&mut self, window: &Window) {
         if self.config.process_dock_rules.is_empty() {
             if self.effective_dock_position != self.config.dock_position {
@@ -591,7 +597,7 @@ impl App {
 
         let hidden_handle_h = layout.hidden_handle_h;
         let hidden_handle_y = layout.hidden_handle_y;
-        let is_on_hidden_handle = (self.auto_hidden || self.manually_hidden)
+        let is_on_hidden_handle = self.is_hidden()
             && is_point_in_rect(
                 rel_x as f64,
                 rel_y as f64,
@@ -824,9 +830,11 @@ impl App {
         if self.is_dragging {
             self.is_dragging = false;
             if !self.drag_has_moved {
-                if self.auto_hidden || self.manually_hidden {
+                if self.is_hidden() {
                     self.auto_hidden = false;
+                    self.hover_hidden = false;
                     self.manually_hidden = false;
+                    self.hover_to_hide_enter_at = None;
                     self.spring_hide.velocity = -0.45;
                     self.idle_timer = Instant::now();
                 } else {
@@ -835,9 +843,13 @@ impl App {
             } else if self.spring_hide.value > 0.3 {
                 self.manually_hidden = true;
                 self.auto_hidden = false;
+                self.hover_hidden = false;
+                self.hover_to_hide_enter_at = None;
             } else {
                 self.manually_hidden = false;
                 self.auto_hidden = false;
+                self.hover_hidden = false;
+                self.hover_to_hide_enter_at = None;
             }
         }
     }
@@ -991,8 +1003,7 @@ impl App {
         dt: f32,
     ) -> f32 {
         self.lyric_scroll_active = false;
-        let is_currently_hidden =
-            self.auto_hidden || self.manually_hidden || self.spring_hide.value > 0.1;
+        let is_currently_hidden = self.is_hidden() || self.spring_hide.value > 0.1;
         let target_base_w = if music_active && !self.expanded && !is_currently_hidden {
             let has_visible_lyrics = !self.current_lyric_text.is_empty()
                 || (!self.old_lyric_text.is_empty() && self.lyric_transition < 1.0);
@@ -1237,6 +1248,7 @@ impl ApplicationHandler for App {
                     if self.config.lyrics_filter_scope != LyricsFilterScope::Off {
                         self.refresh_lyrics_filter_regex();
                     }
+                    let is_hidden = self.is_hidden();
                     if let Some(surface) = self.surface.as_mut() {
                         let dt =
                             (self.last_frame_time.elapsed().as_secs_f32() * 60.0).clamp(0.1, 3.0);
@@ -1266,7 +1278,6 @@ impl ApplicationHandler for App {
                         if !self.config.audio_gate {
                             self.audio.set_gate_override(false);
                         } else {
-                            let is_hidden = self.auto_hidden || self.manually_hidden;
                             self.audio.set_gate_override(!is_hidden);
                         }
                         media_info.spectrum = self.audio.get_spectrum();
@@ -1449,7 +1460,7 @@ impl ApplicationHandler for App {
         );
         let hidden_handle_h = layout.hidden_handle_h;
         let hidden_handle_y = layout.hidden_handle_y;
-        let is_on_hidden_handle = (self.auto_hidden || self.manually_hidden)
+        let is_on_hidden_handle = self.is_hidden()
             && is_point_in_rect(
                 rel_x as f64,
                 rel_y as f64,
@@ -1458,6 +1469,33 @@ impl ApplicationHandler for App {
                 self.spring_w.value as f64,
                 hidden_handle_h,
             );
+        let hover_to_hide_available =
+            self.config.hover_to_hide && !self.expanded && !self.manually_hidden;
+        let (cursor_in_hover_inner, cursor_in_hover_outer) = if hover_to_hide_available {
+            let d = self.config.hover_to_hide_distance as f64;
+            let buffer = d * 0.5;
+            (
+                is_point_in_rect(
+                    rel_x as f64,
+                    rel_y as f64,
+                    offset_x - d,
+                    current_island_y - d,
+                    self.spring_w.value as f64 + d * 2.0,
+                    self.spring_h.value as f64 + d * 2.0,
+                ),
+                is_point_in_rect(
+                    rel_x as f64,
+                    rel_y as f64,
+                    offset_x - d - buffer,
+                    current_island_y - d - buffer,
+                    self.spring_w.value as f64 + (d + buffer) * 2.0,
+                    self.spring_h.value as f64 + (d + buffer) * 2.0,
+                ),
+            )
+        } else {
+            (false, false)
+        };
+        let block_auto_reveal = hover_to_hide_available && cursor_in_hover_inner;
 
         if self.frame_count.is_multiple_of(10) {
             self.is_fullscreen_suppressed = is_foreground_fullscreen();
@@ -1471,8 +1509,7 @@ impl ApplicationHandler for App {
         if self.is_fullscreen_suppressed || self.is_cursor_suppressed {
             let _ = window.set_cursor_hittest(false);
         } else {
-            let clickable = !(self.config.hover_to_hide && self.auto_hidden)
-                && (is_hovering_visible || is_on_hidden_handle);
+            let clickable = !self.hover_hidden && (is_hovering_visible || is_on_hidden_handle);
             let _ = window.set_cursor_hittest(clickable);
         }
 
@@ -1512,38 +1549,45 @@ impl ApplicationHandler for App {
             && !self.expanded
             && !self.is_dragging
             && (!music_active || is_paused_idle);
-        if self.config.hover_to_hide && !self.expanded && !self.manually_hidden {
-            let d = self.config.hover_to_hide_distance as f64;
-            let buffer = d * 0.5;
-            let cursor_in_inner = is_point_in_rect(
-                rel_x as f64,
-                rel_y as f64,
-                offset_x - d,
-                current_island_y - d,
-                self.spring_w.value as f64 + d * 2.0,
-                self.spring_h.value as f64 + d * 2.0,
-            );
-            let cursor_in_outer = is_point_in_rect(
-                rel_x as f64,
-                rel_y as f64,
-                offset_x - d - buffer,
-                current_island_y - d - buffer,
-                self.spring_w.value as f64 + (d + buffer) * 2.0,
-                self.spring_h.value as f64 + (d + buffer) * 2.0,
-            );
-            if !self.auto_hidden {
-                if cursor_in_inner {
-                    self.auto_hidden = true;
+        if !self.config.auto_hide {
+            self.auto_hidden = false;
+            self.idle_timer = Instant::now();
+        } else if media.is_playing
+            && self.auto_hidden
+            && !self.manually_hidden
+            && !block_auto_reveal
+        {
+            self.auto_hidden = false;
+            self.idle_timer = Instant::now();
+            self.spring_hide.velocity = -0.65;
+        } else if self.auto_hidden {
+            if !block_auto_reveal && (is_on_hidden_handle || is_hovering_visible) {
+                self.auto_hidden = false;
+                self.idle_timer = Instant::now();
+                self.spring_hide.velocity = -0.45;
+            }
+        } else if is_idle && !self.manually_hidden {
+            if self.idle_timer.elapsed().as_secs_f32() > self.config.auto_hide_delay {
+                self.auto_hidden = true;
+            }
+        } else if !self.manually_hidden && !is_idle {
+            self.idle_timer = Instant::now();
+        }
+
+        if hover_to_hide_available && !self.auto_hidden {
+            if !self.hover_hidden {
+                if cursor_in_hover_inner {
+                    self.hover_hidden = true;
                     self.hover_to_hide_enter_at = None;
                 }
-            } else if !cursor_in_outer {
+            } else if !cursor_in_hover_outer {
                 match self.hover_to_hide_enter_at {
                     None => self.hover_to_hide_enter_at = Some(Instant::now()),
                     Some(t)
                         if t.elapsed()
                             >= Duration::from_secs_f64(self.config.hover_to_hide_delay as f64) =>
                     {
-                        self.auto_hidden = false;
+                        self.hover_hidden = false;
                         self.idle_timer = Instant::now();
                         self.spring_hide.velocity = -0.45;
                         self.hover_to_hide_enter_at = None;
@@ -1553,31 +1597,9 @@ impl ApplicationHandler for App {
             } else {
                 self.hover_to_hide_enter_at = None;
             }
-        }
-
-        if !self.config.hover_to_hide {
-            if !self.config.auto_hide {
-                self.auto_hidden = false;
-                self.idle_timer = Instant::now();
-            } else if media.is_playing && self.auto_hidden && !self.manually_hidden {
-                self.auto_hidden = false;
-                self.idle_timer = Instant::now();
-                self.spring_hide.velocity = -0.65;
-            } else if self.auto_hidden {
-                if is_on_hidden_handle || is_hovering_visible {
-                    self.auto_hidden = false;
-                    self.idle_timer = Instant::now();
-                    self.spring_hide.velocity = -0.45;
-                } else if !self.expanded && !music_active {
-                    // Let idle_timer expire
-                }
-            } else if is_idle && !self.manually_hidden {
-                if self.idle_timer.elapsed().as_secs_f32() > self.config.auto_hide_delay {
-                    self.auto_hidden = true;
-                }
-            } else if !self.manually_hidden && !is_idle {
-                self.idle_timer = Instant::now();
-            }
+        } else {
+            self.hover_hidden = false;
+            self.hover_to_hide_enter_at = None;
         }
 
         if self.seeking_progress && (is_left_button_pressed() || self.touch_id.is_some()) {
@@ -1646,12 +1668,12 @@ impl ApplicationHandler for App {
                 window.request_redraw();
             }
         } else {
-            let hide_target = if self.auto_hidden || self.manually_hidden {
+            let hide_target = if self.is_hidden() {
                 1.0
             } else {
                 0.0
             };
-            let (stiffness, damping) = if self.auto_hidden || self.manually_hidden {
+            let (stiffness, damping) = if self.is_hidden() {
                 (0.12, 0.70)
             } else {
                 (0.08, 0.78)
