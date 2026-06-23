@@ -1321,9 +1321,13 @@ impl ApplicationHandler for App {
                         let current_char_progress = char_data.as_ref().and_then(|(chars, idx)| {
                             chars.get(*idx).map(|ch| {
                                 if ch.e > ch.s {
-                                    ((lyric_current_pos.saturating_sub(ch.s)) as f32
-                                        / (ch.e - ch.s) as f32)
-                                        .clamp(0.0, 1.0)
+                                    let raw = (lyric_current_pos.saturating_sub(ch.s)) as f32
+                                        / (ch.e - ch.s) as f32;
+                                    if *idx + 1 >= chars.len() {
+                                        raw.clamp(0.0, 2.0)
+                                    } else {
+                                        raw.clamp(0.0, 1.0)
+                                    }
                                 } else {
                                     0.5
                                 }

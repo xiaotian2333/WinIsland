@@ -369,16 +369,26 @@ pub fn draw_widget_page(
                     .get(char_idx)
                     .map(|ch| {
                         if ch.e > ch.s {
-                            ((current_pos.saturating_sub(ch.s)) as f32 / (ch.e - ch.s) as f32)
-                                .clamp(0.0, 1.0)
+                            let raw = (current_pos.saturating_sub(ch.s)) as f32
+                                / (ch.e - ch.s) as f32;
+                            if char_idx + 1 >= chars.len() {
+                                raw.clamp(0.0, 2.0)
+                            } else {
+                                raw.clamp(0.0, 1.0)
+                            }
                         } else {
                             0.5
                         }
                     })
                     .unwrap_or(0.5);
-                let boundary_x = start_x
+                let mut boundary_x = start_x
                     + char_widths.iter().take(char_idx).sum::<f32>()
-                    + char_widths.get(char_idx).copied().unwrap_or(0.0) * char_progress;
+                    + char_widths.get(char_idx).copied().unwrap_or(0.0) * char_progress.min(1.0);
+                if char_idx + 1 >= char_widths.len() {
+                    let ghost = char_widths.get(char_idx).copied().unwrap_or(0.0)
+                        * (char_progress - 1.0).clamp(0.0, 1.0);
+                    boundary_x += ghost;
+                }
                 let mut char_x = start_x;
                 let char_alpha = (text_alpha * 255.0).min(255.0) as u8;
                 let mut ch_paint = Paint::default();

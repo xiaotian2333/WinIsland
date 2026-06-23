@@ -119,8 +119,14 @@ fn lyric_character_boundary_x(
     char_progress: f32,
 ) -> f32 {
     let played_w: f32 = widths.iter().take(char_idx).sum();
-    let current_w = widths.get(char_idx).copied().unwrap_or(0.0);
-    start_x + played_w + current_w * char_progress.clamp(0.0, 1.0)
+    let last_w = widths.get(char_idx).copied().unwrap_or(0.0);
+    let base = played_w + last_w * char_progress.min(1.0);
+    if char_idx + 1 >= widths.len() {
+        let ghost = last_w * (char_progress - 1.0).clamp(0.0, 1.0);
+        start_x + base + ghost
+    } else {
+        start_x + base
+    }
 }
 
 pub fn draw_island(
