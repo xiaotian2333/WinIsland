@@ -15,8 +15,6 @@ use tokio_util::sync::CancellationToken;
 pub enum LyricsWsCommand {
     RequestTrackLyrics,
     Seek(u64),
-    Play,
-    Pause,
     TogglePlay,
     Next,
     Prev,
@@ -25,7 +23,6 @@ pub enum LyricsWsCommand {
         track_id: Option<String>,
     },
     GetPlaybackState,
-    RequestMusicData,
     ShowMainWindow,
     ConfigSnapshot,
 }
@@ -66,7 +63,6 @@ pub struct LyricsWsHandle {
     command_tx: broadcast::Sender<LyricsWsCommand>,
 }
 
-#[allow(dead_code)]
 impl LyricsWsHandle {
     pub fn request_track_lyrics(&self) {
         let _ = self.command_tx.send(LyricsWsCommand::RequestTrackLyrics);
@@ -74,14 +70,6 @@ impl LyricsWsHandle {
 
     pub fn seek(&self, position_ms: u64) {
         let _ = self.command_tx.send(LyricsWsCommand::Seek(position_ms));
-    }
-
-    pub fn play(&self) {
-        let _ = self.command_tx.send(LyricsWsCommand::Play);
-    }
-
-    pub fn pause(&self) {
-        let _ = self.command_tx.send(LyricsWsCommand::Pause);
     }
 
     pub fn toggle_play(&self) {
@@ -105,10 +93,6 @@ impl LyricsWsHandle {
 
     pub fn get_playback_state(&self) {
         let _ = self.command_tx.send(LyricsWsCommand::GetPlaybackState);
-    }
-
-    pub fn request_music_data(&self) {
-        let _ = self.command_tx.send(LyricsWsCommand::RequestMusicData);
     }
 
     pub fn show_main_window(&self) {
@@ -196,12 +180,6 @@ async fn handle_client(
                     Ok(LyricsWsCommand::Seek(position_ms)) => {
                         send_command(&mut ws_write, "seek", Some(json!({ "position_ms": position_ms }))).await?;
                     }
-                    Ok(LyricsWsCommand::Play) => {
-                        send_command(&mut ws_write, "play", None).await?;
-                    }
-                    Ok(LyricsWsCommand::Pause) => {
-                        send_command(&mut ws_write, "pause", None).await?;
-                    }
                     Ok(LyricsWsCommand::TogglePlay) => {
                         send_command(&mut ws_write, "toggle_play", None).await?;
                     }
@@ -226,9 +204,6 @@ async fn handle_client(
                     }
                     Ok(LyricsWsCommand::GetPlaybackState) => {
                         send_command(&mut ws_write, "get_playback_state", None).await?;
-                    }
-                    Ok(LyricsWsCommand::RequestMusicData) => {
-                        send_command(&mut ws_write, "request_MusicData", None).await?;
                     }
                     Ok(LyricsWsCommand::ShowMainWindow) => {
                         send_command(&mut ws_write, "show_main_window", None).await?;
