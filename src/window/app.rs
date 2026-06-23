@@ -1,5 +1,7 @@
 use crate::core::audio::AudioProcessor;
-use crate::core::config::{AppConfig, DockPosition, LyricsFilterScope, PADDING, TOP_OFFSET, WINDOW_TITLE};
+use crate::core::config::{
+    AppConfig, DockPosition, LyricsFilterScope, PADDING, TOP_OFFSET, WINDOW_TITLE,
+};
 use crate::core::lyrics::{
     LyricCharacter, current_character_index, current_lyric_index, filtered_lyric_text,
 };
@@ -22,8 +24,8 @@ use crate::utils::mouse::{
     get_global_cursor_pos, is_cursor_hidden, is_foreground_fullscreen, is_left_button_pressed,
     is_point_in_rect,
 };
-use crate::utils::process::get_foreground_process_name;
 use crate::utils::physics::Spring;
+use crate::utils::process::get_foreground_process_name;
 use crate::window::tray::{TrayAction, TrayManager};
 use regex::Regex;
 use softbuffer::{Context, Surface};
@@ -263,10 +265,7 @@ impl App {
         };
     }
 
-    fn current_filtered_lyric(
-        &mut self,
-        media: &MediaInfo,
-    ) -> Option<String> {
+    fn current_filtered_lyric(&mut self, media: &MediaInfo) -> Option<String> {
         let lyrics = media.lyrics.as_ref()?;
         let raw_pos = if media.is_playing {
             media
@@ -533,18 +532,12 @@ impl App {
         if !self.config.show_lyrics || !self.config.lyrics_char_highlight {
             return None;
         }
-        let Some(lyrics) = media.lyrics.as_ref() else {
-            return None;
-        };
+        let lyrics = media.lyrics.as_ref()?;
         let delay_ms = (self.config.lyrics_delay * 1000.0) as i64;
         let current_pos = media.effective_position_ms(delay_ms);
-        let Some(idx) = current_lyric_index(lyrics, current_pos) else {
-            return None;
-        };
+        let idx = current_lyric_index(lyrics, current_pos)?;
         let line = &lyrics[idx];
-        let Some(characters) = line.characters.as_ref() else {
-            return None;
-        };
+        let characters = line.characters.as_ref()?;
         if characters.is_empty() {
             return None;
         }
@@ -1673,11 +1666,7 @@ impl ApplicationHandler for App {
                 window.request_redraw();
             }
         } else {
-            let hide_target = if self.is_hidden() {
-                1.0
-            } else {
-                0.0
-            };
+            let hide_target = if self.is_hidden() { 1.0 } else { 0.0 };
             let (stiffness, damping) = if self.is_hidden() {
                 (0.12, 0.70)
             } else {

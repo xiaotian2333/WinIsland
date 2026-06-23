@@ -369,8 +369,8 @@ pub fn draw_widget_page(
                     .get(char_idx)
                     .map(|ch| {
                         if ch.e > ch.s {
-                            let raw = (current_pos.saturating_sub(ch.s)) as f32
-                                / (ch.e - ch.s) as f32;
+                            let raw =
+                                (current_pos.saturating_sub(ch.s)) as f32 / (ch.e - ch.s) as f32;
                             if char_idx + 1 >= chars.len() {
                                 raw.clamp(0.0, 2.0)
                             } else {

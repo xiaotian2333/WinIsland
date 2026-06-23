@@ -286,9 +286,10 @@ fn normalize_config(config: &mut AppConfig) {
     config.update_check_interval = config.update_check_interval.clamp(1.0, 24.0);
     config.lyrics_delay = round_to_f64(config.lyrics_delay, 0.1).clamp(-10.0, 10.0);
     let lyrics_scroll_min_width = (config.base_width + 35.0).max(100.0);
-    config.lyrics_scroll_max_width = config
-        .lyrics_scroll_max_width
-        .clamp(lyrics_scroll_min_width, 500.0_f32.max(lyrics_scroll_min_width));
+    config.lyrics_scroll_max_width = config.lyrics_scroll_max_width.clamp(
+        lyrics_scroll_min_width,
+        500.0_f32.max(lyrics_scroll_min_width),
+    );
 
     if !matches!(config.language.as_str(), "auto" | "en" | "zh") {
         config.language = AppConfig::default().language;

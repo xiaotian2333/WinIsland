@@ -1,4 +1,4 @@
-use crate::core::config::{is_valid_color, AppConfig};
+use crate::core::config::{AppConfig, is_valid_color};
 use std::fs;
 use std::path::PathBuf;
 pub fn get_config_path() -> PathBuf {
@@ -27,9 +27,7 @@ pub fn load_config() -> AppConfig {
     config.base_height = config.base_height.max(15.0);
     config.expanded_width = config.expanded_width.max(200.0);
     config.expanded_height = config.expanded_height.max(100.0);
-    config.lyrics_scroll_max_width = config
-        .lyrics_scroll_max_width
-        .max(config.base_width + 35.0);
+    config.lyrics_scroll_max_width = config.lyrics_scroll_max_width.max(config.base_width + 35.0);
     if !is_valid_color(&config.lyrics_char_color_unplayed) {
         config.lyrics_char_color_unplayed = AppConfig::default().lyrics_char_color_unplayed;
     }

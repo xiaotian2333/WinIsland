@@ -769,8 +769,7 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
         let skip_gap = CONTROL_BUTTON_GAP * scale;
 
         if show_favorite_button {
-            let (fav_x, _, fav_w, _) =
-                get_favorite_btn_rect(ox, oy, w, h, scale, cover_shape);
+            let (fav_x, _, fav_w, _) = get_favorite_btn_rect(ox, oy, w, h, scale, cover_shape);
             let fav_cx = fav_x + fav_w / 2.0;
             let fav_color = if media.is_favorite {
                 text_color
