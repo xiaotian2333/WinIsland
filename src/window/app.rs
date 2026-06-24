@@ -861,29 +861,28 @@ impl App {
 
     fn handle_tray_events(&mut self, window: &Window, event_loop: &ActiveEventLoop) {
         if let Some(tray) = &self.tray
-            && let Ok(event) = tray_icon::menu::MenuEvent::receiver().try_recv()
+            && let Some(action) = tray.try_recv_action()
         {
-            match TrayAction::from_id(event.id, tray) {
-                Some(TrayAction::ToggleVisibility) => {
+            match action {
+                TrayAction::ToggleVisibility => {
                     self.visible = !self.visible;
                     window.set_visible(self.visible);
                     tray.update_item_text(self.visible);
                 }
-                Some(TrayAction::OpenSettings) => {
+                TrayAction::OpenSettings => {
                     if let Ok(exe) = std::env::current_exe() {
                         let _ = std::process::Command::new(exe).arg("--settings").spawn();
                     }
                 }
-                Some(TrayAction::Restart) => {
+                TrayAction::Restart => {
                     Self::close_settings_window();
                     self.restart_requested = true;
                     event_loop.exit();
                 }
-                Some(TrayAction::Exit) => {
+                TrayAction::Exit => {
                     Self::close_settings_window();
                     event_loop.exit();
                 }
-                None => (),
             }
         }
     }
