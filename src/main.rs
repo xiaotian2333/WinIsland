@@ -98,12 +98,23 @@ fn main() {
         };
 
         let runtime = tokio::runtime::Runtime::new().unwrap();
-        let _guard = runtime.enter();
+        let guard = runtime.enter();
 
         utils::updater::start_update_checker();
 
         let event_loop = EventLoop::new().unwrap();
         let mut app = App::default();
-        event_loop.run_app(&mut app).unwrap();
+        let result = event_loop.run_app(&mut app);
+        let restart_requested = app.take_restart_requested();
+
+        drop(app);
+        drop(guard);
+        drop(runtime);
+
+        result.unwrap();
+
+        if restart_requested && let Ok(exe) = std::env::current_exe() {
+            let _ = std::process::Command::new(exe).arg("--restart").spawn();
+        }
     }
 }

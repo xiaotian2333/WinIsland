@@ -60,6 +60,7 @@ pub struct App {
     expanded: bool,
     widget_view: bool,
     visible: bool,
+    restart_requested: bool,
     spring_w: Spring,
     spring_h: Spring,
     spring_r: Spring,
@@ -118,6 +119,7 @@ impl Default for App {
             expanded: false,
             widget_view: false,
             visible: true,
+            restart_requested: false,
             spring_w: Spring::new(config.base_width * config.non_expanded_scale),
             spring_h: Spring::new(config.base_height * config.non_expanded_scale),
             spring_r: Spring::new((config.base_height * config.non_expanded_scale) / 2.0),
@@ -185,6 +187,10 @@ struct MiniLyricCharacterData<'a> {
 }
 
 impl App {
+    pub fn take_restart_requested(&mut self) -> bool {
+        std::mem::take(&mut self.restart_requested)
+    }
+
     fn is_hidden(&self) -> bool {
         self.auto_hidden || self.hover_hidden || self.manually_hidden
     }
@@ -870,9 +876,7 @@ impl App {
                 }
                 Some(TrayAction::Restart) => {
                     Self::close_settings_window();
-                    if let Ok(exe) = std::env::current_exe() {
-                        let _ = std::process::Command::new(exe).arg("--restart").spawn();
-                    }
+                    self.restart_requested = true;
                     event_loop.exit();
                 }
                 Some(TrayAction::Exit) => {
@@ -1412,6 +1416,12 @@ impl ApplicationHandler for App {
         }
     }
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        if crate::utils::updater::take_exit_requested() {
+            Self::close_settings_window();
+            event_loop.exit();
+            return;
+        }
+
         if self.media.is_disabled() {
             Self::close_settings_window();
             event_loop.exit();

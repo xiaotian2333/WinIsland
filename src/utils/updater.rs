@@ -19,6 +19,7 @@ static HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
         .unwrap()
 });
 static MANUAL_CHECK_RUNNING: AtomicBool = AtomicBool::new(false);
+static UPDATE_EXIT_REQUESTED: AtomicBool = AtomicBool::new(false);
 
 const GITHUB_RELEASES_API: &str =
     "https://api.github.com/repos/xiaotian2333/EchoMusic-Lyrics-WinIsland/releases?per_page=10";
@@ -121,6 +122,10 @@ pub fn check_for_updates_now() {
         }
         MANUAL_CHECK_RUNNING.store(false, Ordering::Release);
     });
+}
+
+pub fn take_exit_requested() -> bool {
+    UPDATE_EXIT_REQUESTED.swap(false, Ordering::AcqRel)
 }
 
 async fn do_manual_check() {
@@ -377,7 +382,7 @@ async fn perform_update(candidate: UpdateCandidate) {
         .args(["-WindowStyle", "Hidden", "-Command", &script])
         .spawn();
 
-    std::process::exit(0);
+    UPDATE_EXIT_REQUESTED.store(true, Ordering::Release);
 }
 
 fn parse_version(value: &str) -> Option<[u64; 3]> {

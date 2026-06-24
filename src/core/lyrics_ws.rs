@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use futures_util::{Sink, SinkExt, StreamExt};
 use serde_json::{Value, json};
 use tokio::net::TcpListener;
@@ -10,6 +12,10 @@ use crate::core::config::{APP_HOMEPAGE, is_valid_color};
 use crate::core::lyrics::{MusicData, parse_music_data_payload};
 use crate::core::persistence;
 use crate::utils::font::FontManager;
+
+const LYRICS_WS_ADDR: &str = "127.0.0.1:17195";
+const BIND_RETRY_INITIAL_MS: u64 = 200;
+const BIND_RETRY_MAX_MS: u64 = 2_000;
 
 #[allow(dead_code)]
 #[derive(Clone, Debug)]
@@ -124,15 +130,11 @@ async fn run_server(
     command_tx: broadcast::Sender<LyricsWsCommand>,
     cancel: CancellationToken,
 ) {
-    let listener = match TcpListener::bind("127.0.0.1:17195").await {
-        Ok(listener) => listener,
-        Err(err) => {
-            log::error!("歌词 WebSocket 服务启动失败: {}", err);
-            return;
-        }
+    let Some(listener) = bind_listener(&cancel).await else {
+        return;
     };
 
-    log::info!("歌词 WebSocket 服务已监听 ws://127.0.0.1:17195");
+    log::info!("歌词 WebSocket 服务已监听 ws://{}", LYRICS_WS_ADDR);
 
     loop {
         tokio::select! {
@@ -141,6 +143,7 @@ async fn run_server(
                 let Ok((stream, addr)) = accepted else {
                     continue;
                 };
+                clear_stream_inherit(&stream);
                 let client_event_tx = event_tx.clone();
                 let command_rx = command_tx.subscribe();
                 let client_command_tx = command_tx.clone();
@@ -154,6 +157,75 @@ async fn run_server(
         }
     }
 }
+
+async fn bind_listener(cancel: &CancellationToken) -> Option<TcpListener> {
+    let mut retry_delay = Duration::from_millis(BIND_RETRY_INITIAL_MS);
+
+    loop {
+        match TcpListener::bind(LYRICS_WS_ADDR).await {
+            Ok(listener) => {
+                clear_listener_inherit(&listener);
+                return Some(listener);
+            }
+            Err(err) => {
+                log::warn!(
+                    "歌词 WebSocket 服务监听 {} 失败: {}，将在 {:?} 后重试",
+                    LYRICS_WS_ADDR,
+                    err,
+                    retry_delay
+                );
+            }
+        }
+
+        tokio::select! {
+            _ = cancel.cancelled() => return None,
+            _ = tokio::time::sleep(retry_delay) => {}
+        }
+
+        retry_delay =
+            Duration::from_millis((retry_delay.as_millis() as u64 * 2).min(BIND_RETRY_MAX_MS));
+    }
+}
+
+#[cfg(windows)]
+fn clear_listener_inherit(listener: &TcpListener) {
+    use std::ffi::c_void;
+    use std::os::windows::io::AsRawSocket;
+    use windows::Win32::Foundation::{
+        HANDLE, HANDLE_FLAG_INHERIT, HANDLE_FLAGS, SetHandleInformation,
+    };
+
+    let handle = HANDLE(listener.as_raw_socket() as *mut c_void);
+    // SAFETY: raw socket 来自当前进程持有的 TcpListener，只修改 HANDLE_FLAG_INHERIT，
+    // 不改变 socket 所有权，也不关闭或复制句柄。
+    let result = unsafe { SetHandleInformation(handle, HANDLE_FLAG_INHERIT.0, HANDLE_FLAGS(0)) };
+    if let Err(err) = result {
+        log::warn!("歌词 WebSocket 监听句柄继承标记清除失败: {}", err);
+    }
+}
+
+#[cfg(not(windows))]
+fn clear_listener_inherit(_listener: &TcpListener) {}
+
+#[cfg(windows)]
+fn clear_stream_inherit(stream: &tokio::net::TcpStream) {
+    use std::ffi::c_void;
+    use std::os::windows::io::AsRawSocket;
+    use windows::Win32::Foundation::{
+        HANDLE, HANDLE_FLAG_INHERIT, HANDLE_FLAGS, SetHandleInformation,
+    };
+
+    let handle = HANDLE(stream.as_raw_socket() as *mut c_void);
+    // SAFETY: raw socket 来自当前进程持有的 TcpStream，只修改 HANDLE_FLAG_INHERIT，
+    // 不改变 socket 所有权，也不关闭或复制句柄。
+    let result = unsafe { SetHandleInformation(handle, HANDLE_FLAG_INHERIT.0, HANDLE_FLAGS(0)) };
+    if let Err(err) = result {
+        log::warn!("歌词 WebSocket 客户端句柄继承标记清除失败: {}", err);
+    }
+}
+
+#[cfg(not(windows))]
+fn clear_stream_inherit(_stream: &tokio::net::TcpStream) {}
 
 async fn handle_client(
     stream: tokio::net::TcpStream,
