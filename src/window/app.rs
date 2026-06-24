@@ -1,3 +1,22 @@
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+use regex::Regex;
+use softbuffer::{Context, Surface};
+use windows::Win32::Foundation::HWND;
+use windows::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
+use windows::Win32::UI::WindowsAndMessaging::{
+    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_MAXIMIZEBOX, WS_THICKFRAME,
+};
+use windows::core::PCWSTR;
+use winit::application::ApplicationHandler;
+use winit::dpi::{PhysicalPosition, PhysicalSize};
+use winit::event::{ElementState, MouseButton, TouchPhase, WindowEvent};
+use winit::event_loop::{ActiveEventLoop, ControlFlow};
+use winit::platform::windows::WindowAttributesExtWindows;
+use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+use winit::window::{Window, WindowButtons, WindowId, WindowLevel};
+
 use crate::core::audio::AudioProcessor;
 use crate::core::config::{
     AppConfig, DockPosition, LyricsFilterScope, PADDING, TOP_OFFSET, WINDOW_TITLE,
@@ -27,23 +46,6 @@ use crate::utils::mouse::{
 use crate::utils::physics::Spring;
 use crate::utils::process::get_foreground_process_name;
 use crate::window::tray::{TrayAction, TrayManager};
-use regex::Regex;
-use softbuffer::{Context, Surface};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-use windows::Win32::Foundation::HWND;
-use windows::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
-use windows::Win32::UI::WindowsAndMessaging::{
-    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_MAXIMIZEBOX, WS_THICKFRAME,
-};
-use windows::core::PCWSTR;
-use winit::application::ApplicationHandler;
-use winit::dpi::{PhysicalPosition, PhysicalSize};
-use winit::event::{ElementState, MouseButton, TouchPhase, WindowEvent};
-use winit::event_loop::{ActiveEventLoop, ControlFlow};
-use winit::platform::windows::WindowAttributesExtWindows;
-use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
-use winit::window::{Window, WindowButtons, WindowId, WindowLevel};
 
 const MINI_LYRIC_LOOP_GAP: f32 = 48.0;
 

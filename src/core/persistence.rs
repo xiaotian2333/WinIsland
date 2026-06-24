@@ -1,6 +1,8 @@
-use crate::core::config::{AppConfig, is_valid_color};
 use std::fs;
 use std::path::PathBuf;
+
+use crate::core::config::{AppConfig, is_valid_color};
+
 pub fn get_config_path() -> PathBuf {
     let mut path = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
     path.push(".echomusic-lyrics-winisland");

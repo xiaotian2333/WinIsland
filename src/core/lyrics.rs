@@ -1,5 +1,8 @@
-use serde_json::Value;
 use std::sync::Arc;
+
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD;
+use serde_json::Value;
 
 const MAX_COVER_IMAGE_BYTES: usize = 5 * 1024 * 1024;
 
@@ -214,7 +217,7 @@ fn decode_cover_base64(input: &str) -> Result<Option<Vec<u8>>, &'static str> {
     };
 
     for &byte in cleaned.iter().take(cleaned.len() - explicit_padding) {
-        if base64_value(byte).is_none() {
+        if !matches!(byte, b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'+' | b'/') {
             return Err("封面 Base64 包含非法字符");
         }
     }
@@ -240,46 +243,15 @@ fn decode_cover_base64(input: &str) -> Result<Option<Vec<u8>>, &'static str> {
         return Err("封面图片超过大小限制");
     }
 
-    let mut output = Vec::with_capacity(output_len);
-    for chunk_start in (0..padded_len).step_by(4) {
-        let mut values = [0u8; 4];
-        let mut is_padding = [false; 4];
-        for i in 0..4 {
-            let idx = chunk_start + i;
-            let byte = cleaned.get(idx).copied().unwrap_or(b'=');
-            if byte == b'=' {
-                is_padding[i] = true;
-            } else if let Some(value) = base64_value(byte) {
-                values[i] = value;
-            } else {
-                return Err("封面 Base64 包含非法字符");
-            }
-        }
-        if is_padding[0] || is_padding[1] || (is_padding[2] && !is_padding[3]) {
-            return Err("封面 Base64 padding 非法");
-        }
+    cleaned.resize(cleaned.len() + implicit_padding, b'=');
 
-        output.push((values[0] << 2) | (values[1] >> 4));
-        if !is_padding[2] {
-            output.push((values[1] << 4) | (values[2] >> 2));
-        }
-        if !is_padding[3] {
-            output.push((values[2] << 6) | values[3]);
-        }
+    let output = STANDARD
+        .decode(&cleaned)
+        .map_err(|_| "封面 Base64 包含非法字符")?;
+    if output.len() != output_len {
+        return Err("封面 Base64 padding 非法");
     }
-
     Ok(Some(output))
-}
-
-fn base64_value(byte: u8) -> Option<u8> {
-    match byte {
-        b'A'..=b'Z' => Some(byte - b'A'),
-        b'a'..=b'z' => Some(byte - b'a' + 26),
-        b'0'..=b'9' => Some(byte - b'0' + 52),
-        b'+' => Some(62),
-        b'/' => Some(63),
-        _ => None,
-    }
 }
 
 #[cfg(test)]

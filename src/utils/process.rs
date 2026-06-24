@@ -8,6 +8,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 
 pub fn get_foreground_process_name() -> Option<String> {
+    // SAFETY: 这些 Win32 调用只查询当前前台窗口、窗口类名和进程 ID。
+    // 类名缓冲区在栈上分配且长度正确，返回的 HWND 和 PID 不会跨函数保存。
     unsafe {
         let hwnd = GetForegroundWindow();
         if hwnd.0.is_null() {
@@ -40,6 +42,8 @@ pub fn find_visible_windows_by_process_name(process_name: &str) -> Vec<HWND> {
         windows: Vec::new(),
     };
 
+    // SAFETY: EnumWindows 同步调用回调函数。context 在调用期间位于栈上且保持有效，
+    // LPARAM 只在回调内还原为同一类型的可变指针，枚举结束后才读取结果。
     unsafe {
         let _ = EnumWindows(
             Some(enum_process_windows_proc),
@@ -57,16 +61,20 @@ struct EnumProcessWindowsContext {
 }
 
 unsafe extern "system" fn enum_process_windows_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
-    let context = unsafe { &mut *(lparam.0 as *mut EnumProcessWindowsContext) };
+    // SAFETY: lparam 来自 find_visible_windows_by_process_name 传入的 context 指针，
+    // EnumWindows 在该栈变量有效期间同步调用本回调。窗口查询 API 只读取 hwnd 状态。
+    let (context, visible, pid) = unsafe {
+        let context = &mut *(lparam.0 as *mut EnumProcessWindowsContext);
+        let visible = IsWindowVisible(hwnd).as_bool();
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(hwnd, Some(&mut pid));
+        (context, visible, pid)
+    };
 
-    if !unsafe { IsWindowVisible(hwnd).as_bool() } {
+    if !visible {
         return BOOL(1);
     }
 
-    let mut pid = 0u32;
-    unsafe {
-        GetWindowThreadProcessId(hwnd, Some(&mut pid));
-    }
     if pid == 0 || pid == context.own_pid {
         return BOOL(1);
     }

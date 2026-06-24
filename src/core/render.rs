@@ -1,3 +1,14 @@
+use std::cell::RefCell;
+use std::sync::Arc;
+
+use skia_safe::canvas::SrcRectConstraint;
+use skia_safe::{
+    ClipOp, Color, FilterMode, ISize, MipmapMode, Paint, RRect, Rect, SamplingOptions,
+    Surface as SkSurface, image_filters, surfaces,
+};
+use softbuffer::Surface;
+use winit::window::Window;
+
 use crate::core::config::{DockPosition, LyricsFilterScope, PADDING, TOP_OFFSET};
 use crate::core::lyrics::LyricCharacter;
 use crate::core::media_info::MediaInfo;
@@ -12,15 +23,6 @@ use crate::utils::color::{color_with_alpha, lyric_boundary_gradient_shader};
 use crate::utils::font::{DrawTextCachedParams, FontManager};
 use crate::utils::glass::get_glass_background;
 use crate::utils::liquid_glass::get_liquid_glass_background;
-use skia_safe::canvas::SrcRectConstraint;
-use skia_safe::{
-    ClipOp, Color, FilterMode, ISize, MipmapMode, Paint, RRect, Rect, SamplingOptions,
-    Surface as SkSurface, image_filters, surfaces,
-};
-use softbuffer::Surface;
-use std::cell::RefCell;
-use std::sync::Arc;
-use winit::window::Window;
 
 thread_local! {
     static SK_SURFACE: RefCell<Option<SkSurface>> = const { RefCell::new(None) };
@@ -126,6 +128,121 @@ fn lyric_character_boundary_x(
         start_x + base + ghost
     } else {
         start_x + base
+    }
+}
+
+struct DrawCurrentLyricCharactersParams<'a> {
+    canvas: &'a skia_safe::Canvas,
+    chars: &'a [LyricCharacter],
+    char_idx: usize,
+    current_char_progress: Option<f32>,
+    text_x: f32,
+    text_y: f32,
+    text_centered: bool,
+    lyric_font_sz: f32,
+    fade_alpha: u8,
+    resolved_char_played: Color,
+    resolved_char_unplayed: Color,
+    char_lift_animation: bool,
+    lift_speed: f32,
+    dt: f32,
+    blur_filter: Option<&'a skia_safe::ImageFilter>,
+}
+
+fn draw_current_lyric_characters(params: DrawCurrentLyricCharactersParams<'_>) {
+    let DrawCurrentLyricCharactersParams {
+        canvas,
+        chars,
+        char_idx,
+        current_char_progress,
+        text_x,
+        text_y,
+        text_centered,
+        lyric_font_sz,
+        fade_alpha,
+        resolved_char_played,
+        resolved_char_unplayed,
+        char_lift_animation,
+        lift_speed,
+        dt,
+        blur_filter,
+    } = params;
+
+    let char_widths = measure_lyric_character_widths(chars, lyric_font_sz);
+    let total_w: f32 = char_widths.iter().sum();
+    let start_x = if text_centered {
+        text_x - total_w / 2.0
+    } else {
+        text_x
+    };
+    let char_base_y = if char_lift_animation {
+        text_y + 2.0
+    } else {
+        text_y
+    };
+    let char_progress = current_char_progress.unwrap_or(0.5);
+    let boundary_x = lyric_character_boundary_x(&char_widths, start_x, char_idx, char_progress);
+    let mut char_x = start_x;
+    let anim_progress = if char_lift_animation {
+        CHAR_LIFT_ANIM.with(|cell| {
+            LAST_CHAR_IDX.with(|last| {
+                let mut last = last.borrow_mut();
+                if *last != Some(char_idx) {
+                    *last = Some(char_idx);
+                    cell.replace(0.0);
+                }
+            });
+            let val = *cell.borrow();
+            if val < 1.0 {
+                *cell.borrow_mut() += lift_speed * dt / 60.0;
+                if *cell.borrow() > 1.0 {
+                    *cell.borrow_mut() = 1.0;
+                }
+            }
+            *cell.borrow()
+        })
+    } else {
+        1.0
+    };
+    let mut ch_paint = Paint::default();
+    ch_paint.set_anti_alias(true);
+    if let Some(shader) = lyric_boundary_gradient_shader(
+        boundary_x,
+        char_base_y,
+        lyric_font_sz * 0.6,
+        resolved_char_played,
+        resolved_char_unplayed,
+        fade_alpha,
+    ) {
+        ch_paint.set_shader(shader);
+    } else {
+        ch_paint.set_color(color_with_alpha(resolved_char_unplayed, fade_alpha));
+    }
+    if let Some(filter) = blur_filter {
+        ch_paint.set_image_filter(filter.clone());
+    }
+    for (i, ch) in chars.iter().enumerate() {
+        let ch_y = if char_lift_animation {
+            if i < char_idx {
+                char_base_y - 3.0
+            } else if i == char_idx {
+                char_base_y - 3.0 * anim_progress
+            } else {
+                char_base_y
+            }
+        } else {
+            char_base_y
+        };
+        draw_text_cached(DrawTextCachedParams {
+            canvas,
+            text: &ch.t,
+            x: char_x,
+            y: ch_y,
+            size: lyric_font_sz,
+            bold: false,
+            paint: &ch_paint,
+        });
+        char_x += char_widths.get(i).copied().unwrap_or(0.0);
     }
 }
 
@@ -709,90 +826,23 @@ pub fn draw_island(
                         if let (Some(chars), Some(char_idx)) =
                             (current_characters, current_char_idx)
                         {
-                            let char_widths = measure_lyric_character_widths(chars, lyric_font_sz);
-                            let total_w: f32 = char_widths.iter().sum();
-                            let start_x = if text_centered {
-                                text_x - total_w / 2.0
-                            } else {
-                                text_x
-                            };
-                            let char_base_y = if char_lift_animation {
-                                text_y + 2.0
-                            } else {
-                                text_y
-                            };
-                            let char_progress = current_char_progress.unwrap_or(0.5);
-                            let boundary_x = lyric_character_boundary_x(
-                                &char_widths,
-                                start_x,
+                            draw_current_lyric_characters(DrawCurrentLyricCharactersParams {
+                                canvas,
+                                chars,
                                 char_idx,
-                                char_progress,
-                            );
-                            let mut char_x = start_x;
-                            let anim_progress = if char_lift_animation {
-                                CHAR_LIFT_ANIM.with(|cell| {
-                                    LAST_CHAR_IDX.with(|last| {
-                                        let mut last = last.borrow_mut();
-                                        if *last != Some(char_idx) {
-                                            *last = Some(char_idx);
-                                            cell.replace(0.0);
-                                        }
-                                    });
-                                    let val = *cell.borrow();
-                                    if val < 1.0 {
-                                        *cell.borrow_mut() += 0.25 * dt / 60.0;
-                                        if *cell.borrow() > 1.0 {
-                                            *cell.borrow_mut() = 1.0;
-                                        }
-                                    }
-                                    *cell.borrow()
-                                })
-                            } else {
-                                1.0
-                            };
-                            let mut ch_paint = Paint::default();
-                            ch_paint.set_anti_alias(true);
-                            if let Some(shader) = lyric_boundary_gradient_shader(
-                                boundary_x,
-                                char_base_y,
-                                lyric_font_sz * 0.6,
+                                current_char_progress,
+                                text_x,
+                                text_y,
+                                text_centered,
+                                lyric_font_sz,
+                                fade_alpha,
                                 resolved_char_played,
                                 resolved_char_unplayed,
-                                fade_alpha,
-                            ) {
-                                ch_paint.set_shader(shader);
-                            } else {
-                                ch_paint.set_color(color_with_alpha(
-                                    resolved_char_unplayed,
-                                    fade_alpha,
-                                ));
-                            }
-                            if let Some(ref filter) = blur_filter {
-                                ch_paint.set_image_filter(filter.clone());
-                            }
-                            for (i, ch) in chars.iter().enumerate() {
-                                let ch_y = if char_lift_animation {
-                                    if i < char_idx {
-                                        char_base_y - 3.0
-                                    } else if i == char_idx {
-                                        char_base_y - 3.0 * anim_progress
-                                    } else {
-                                        char_base_y
-                                    }
-                                } else {
-                                    char_base_y
-                                };
-                                draw_text_cached(DrawTextCachedParams {
-                                    canvas,
-                                    text: &ch.t,
-                                    x: char_x,
-                                    y: ch_y,
-                                    size: lyric_font_sz,
-                                    bold: false,
-                                    paint: &ch_paint,
-                                });
-                                char_x += char_widths.get(i).copied().unwrap_or(0.0);
-                            }
+                                char_lift_animation,
+                                lift_speed: 0.25,
+                                dt,
+                                blur_filter: blur_filter.as_ref(),
+                            });
                         } else {
                             text_paint.set_color(Color::from_argb(
                                 fade_alpha,
@@ -874,87 +924,23 @@ pub fn draw_island(
                         if let (Some(chars), Some(char_idx)) =
                             (current_characters, current_char_idx)
                         {
-                            let char_widths = measure_lyric_character_widths(chars, lyric_font_sz);
-                            let total_w: f32 = char_widths.iter().sum();
-                            let start_x = if text_centered {
-                                text_x - total_w / 2.0
-                            } else {
-                                text_x
-                            };
-                            let char_base_y = if char_lift_animation {
-                                text_y + 2.0
-                            } else {
-                                text_y
-                            };
-                            let char_progress = current_char_progress.unwrap_or(0.5);
-                            let boundary_x = lyric_character_boundary_x(
-                                &char_widths,
-                                start_x,
+                            draw_current_lyric_characters(DrawCurrentLyricCharactersParams {
+                                canvas,
+                                chars,
                                 char_idx,
-                                char_progress,
-                            );
-                            let mut char_x = start_x;
-                            let anim_progress = if char_lift_animation {
-                                CHAR_LIFT_ANIM.with(|cell| {
-                                    LAST_CHAR_IDX.with(|last| {
-                                        let mut last = last.borrow_mut();
-                                        if *last != Some(char_idx) {
-                                            *last = Some(char_idx);
-                                            cell.replace(0.0);
-                                        }
-                                    });
-                                    let val = *cell.borrow();
-                                    if val < 1.0 {
-                                        *cell.borrow_mut() += 4.0 * dt / 60.0;
-                                        if *cell.borrow() > 1.0 {
-                                            *cell.borrow_mut() = 1.0;
-                                        }
-                                    }
-                                    *cell.borrow()
-                                })
-                            } else {
-                                1.0
-                            };
-                            let mut ch_paint = Paint::default();
-                            ch_paint.set_anti_alias(true);
-                            if let Some(shader) = lyric_boundary_gradient_shader(
-                                boundary_x,
-                                char_base_y,
-                                lyric_font_sz * 0.6,
+                                current_char_progress,
+                                text_x,
+                                text_y,
+                                text_centered,
+                                lyric_font_sz,
+                                fade_alpha,
                                 resolved_char_played,
                                 resolved_char_unplayed,
-                                fade_alpha,
-                            ) {
-                                ch_paint.set_shader(shader);
-                            } else {
-                                ch_paint.set_color(color_with_alpha(
-                                    resolved_char_unplayed,
-                                    fade_alpha,
-                                ));
-                            }
-                            for (i, ch) in chars.iter().enumerate() {
-                                let ch_y = if char_lift_animation {
-                                    if i < char_idx {
-                                        char_base_y - 3.0
-                                    } else if i == char_idx {
-                                        char_base_y - 3.0 * anim_progress
-                                    } else {
-                                        char_base_y
-                                    }
-                                } else {
-                                    char_base_y
-                                };
-                                draw_text_cached(DrawTextCachedParams {
-                                    canvas,
-                                    text: &ch.t,
-                                    x: char_x,
-                                    y: ch_y,
-                                    size: lyric_font_sz,
-                                    bold: false,
-                                    paint: &ch_paint,
-                                });
-                                char_x += char_widths.get(i).copied().unwrap_or(0.0);
-                            }
+                                char_lift_animation,
+                                lift_speed: 4.0,
+                                dt,
+                                blur_filter: None,
+                            });
                         } else {
                             let mut text_paint = Paint::default();
                             text_paint.set_anti_alias(true);

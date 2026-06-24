@@ -1,12 +1,14 @@
+use std::cell::RefCell;
+use std::time::Instant;
+
 use skia_safe::{
     AlphaType, Color, ColorType, Data, FilterMode, ISize, Image, ImageInfo, MipmapMode, Paint,
     RRect, Rect, SamplingOptions, TileMode, image_filters, images, surfaces,
 };
-use std::cell::RefCell;
-use std::time::Instant;
 use windows::Win32::Foundation::HWND;
-use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::UI::WindowsAndMessaging::{SetWindowDisplayAffinity, WINDOW_DISPLAY_AFFINITY};
+
+use crate::utils::gdi_capture::{ScreenCaptureRequest, capture_screen_bgra};
 
 /// Exclude (or re-include) the island window from GDI screen captures.
 ///
@@ -14,6 +16,8 @@ use windows::Win32::UI::WindowsAndMessaging::{SetWindowDisplayAffinity, WINDOW_D
 /// feedback (the GDI BitBlt would otherwise include the island's own bright
 /// content). Set when entering liquid glass mode, cleared when leaving.
 pub fn set_exclude_from_capture(hwnd: HWND, exclude: bool) {
+    // SAFETY: SetWindowDisplayAffinity 只修改调用方传入窗口句柄的显示亲和性。
+    // 句柄由窗口层提供，调用失败只影响视觉捕获策略，返回值可忽略。
     unsafe {
         let _ = SetWindowDisplayAffinity(
             hwnd,
@@ -195,79 +199,35 @@ fn capture_and_blur(screen_x: i32, screen_y: i32, w: u32, h: u32) -> Option<Imag
     let cap_w = w as i32 + 2 * margin;
     let cap_h = h as i32 + 2 * margin;
 
-    // SAFETY: GDI screen capture for liquid glass backdrop. All Win32 API
-    // calls operate on valid handles obtained within this block.
-    unsafe {
-        let hdc_screen = GetDC(windows::Win32::Foundation::HWND::default());
-        if hdc_screen.is_invalid() {
-            return None;
-        }
+    let capture = capture_screen_bgra(ScreenCaptureRequest {
+        src_x: cap_x,
+        src_y: cap_y,
+        src_w: cap_w,
+        src_h: cap_h,
+        dst_w: cap_w,
+        dst_h: cap_h,
+        use_halftone: false,
+        force_opaque_alpha: true,
+    })?;
 
-        let hdc_mem = CreateCompatibleDC(hdc_screen);
-        if hdc_mem.is_invalid() {
-            ReleaseDC(windows::Win32::Foundation::HWND::default(), hdc_screen);
-            return None;
-        }
-        let hbm = CreateCompatibleBitmap(hdc_screen, cap_w, cap_h);
-        if hbm.is_invalid() {
-            let _ = DeleteDC(hdc_mem);
-            ReleaseDC(windows::Win32::Foundation::HWND::default(), hdc_screen);
-            return None;
-        }
-        let old = SelectObject(hdc_mem, hbm);
+    let info = ImageInfo::new(
+        ISize::new(capture.width, capture.height),
+        ColorType::BGRA8888,
+        AlphaType::Premul,
+        None,
+    );
+    let data = Data::new_copy(&capture.pixels);
+    let src_img = images::raster_from_data(&info, data, (capture.width * 4) as usize)?;
 
-        let _ = BitBlt(
-            hdc_mem, 0, 0, cap_w, cap_h, hdc_screen, cap_x, cap_y, SRCCOPY,
-        );
-
-        let mut bmi: BITMAPINFO = std::mem::zeroed();
-        bmi.bmiHeader.biSize = size_of::<BITMAPINFOHEADER>() as u32;
-        bmi.bmiHeader.biWidth = cap_w;
-        bmi.bmiHeader.biHeight = -cap_h;
-        bmi.bmiHeader.biPlanes = 1;
-        bmi.bmiHeader.biBitCount = 32;
-        bmi.bmiHeader.biCompression = BI_RGB.0;
-
-        let pixel_count = (cap_w * cap_h * 4) as usize;
-        let mut pixels = vec![0u8; pixel_count];
-        GetDIBits(
-            hdc_mem,
-            hbm,
-            0,
-            cap_h as u32,
-            Some(pixels.as_mut_ptr() as *mut _),
-            &mut bmi,
-            DIB_RGB_COLORS,
-        );
-
-        SelectObject(hdc_mem, old);
-        let _ = DeleteObject(hbm);
-        let _ = DeleteDC(hdc_mem);
-        ReleaseDC(windows::Win32::Foundation::HWND::default(), hdc_screen);
-
-        for pixel in pixels.chunks_exact_mut(4) {
-            pixel[3] = 255;
-        }
-
-        let info = ImageInfo::new(
-            ISize::new(cap_w, cap_h),
-            ColorType::BGRA8888,
-            AlphaType::Premul,
-            None,
-        );
-        let data = Data::new_copy(&pixels);
-        let src_img = images::raster_from_data(&info, data, (cap_w * 4) as usize)?;
-
-        let mut blur_surface = surfaces::raster_n32_premul(ISize::new(cap_w, cap_h))?;
-        let blur_canvas = blur_surface.canvas();
-        let mut blur_paint = Paint::default();
-        if let Some(filter) = image_filters::blur((blur_sigma, blur_sigma), None, None, None) {
-            blur_paint.set_image_filter(filter);
-        }
-        blur_canvas.draw_image(&src_img, (0, 0), Some(&blur_paint));
-
-        Some(blur_surface.image_snapshot())
+    let mut blur_surface = surfaces::raster_n32_premul(ISize::new(capture.width, capture.height))?;
+    let blur_canvas = blur_surface.canvas();
+    let mut blur_paint = Paint::default();
+    if let Some(filter) = image_filters::blur((blur_sigma, blur_sigma), None, None, None) {
+        blur_paint.set_image_filter(filter);
     }
+    blur_canvas.draw_image(&src_img, (0, 0), Some(&blur_paint));
+
+    Some(blur_surface.image_snapshot())
 }
 
 fn render_liquid_glass(

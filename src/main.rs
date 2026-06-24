@@ -4,15 +4,18 @@ mod icons;
 mod ui;
 mod utils;
 mod window;
-use crate::core::i18n::init_i18n;
-use crate::window::app::App;
+
 use std::env;
 use std::mem::ManuallyDrop;
+
 use windows::Win32::Foundation::ERROR_ALREADY_EXISTS;
 use windows::Win32::Foundation::{CloseHandle, GetLastError};
 use windows::Win32::System::Threading::CreateMutexW;
 use windows::core::w;
 use winit::event_loop::EventLoop;
+
+use crate::core::i18n::init_i18n;
+use crate::window::app::App;
 
 fn main() {
     let _ = env_logger::try_init();

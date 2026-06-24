@@ -204,7 +204,11 @@ async fn fetch_from_mirror(
     }
 
     let repo: MirrorRepoResponse = resp.json().await.map_err(|_| UpdateCheckError::Request)?;
-    if repo.status.as_deref() != Some("ok") {
+    if !repo
+        .status
+        .as_deref()
+        .is_some_and(|status| status.eq_ignore_ascii_case("ok"))
+    {
         return Err(UpdateCheckError::Request);
     }
 

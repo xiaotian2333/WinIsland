@@ -1,8 +1,9 @@
+use std::sync::Arc;
+use std::time::Instant;
+
 use crate::core::lyrics::{
     LyricCharacter, LyricLine, current_character_index, current_lyric_index,
 };
-use std::sync::Arc;
-use std::time::Instant;
 
 #[derive(Clone, Debug)]
 pub struct MediaInfo {

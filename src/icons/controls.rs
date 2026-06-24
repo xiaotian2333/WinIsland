@@ -1,14 +1,14 @@
 use skia_safe::{Canvas, Color, Paint, Path};
 
+const PLAY_TRIANGLE_PATH: &str = "M187.2 100.9C174.8 94.1 159.8 94.4 147.6 101.6C135.4 108.8 128 121.9 128 136L128 504C128 518.1 135.5 531.2 147.6 538.4C159.7 545.6 174.8 545.9 187.2 539.1L523.2 355.1C536 348.1 544 334.6 544 320C544 305.4 536 291.9 523.2 284.9L187.2 100.9z";
+
 pub fn draw_play_button(canvas: &Canvas, cx: f32, cy: f32, alpha: u8, scale: f32, color: Color) {
     let mut paint = Paint::default();
     paint.set_anti_alias(true);
     paint.set_color(Color::from_argb(alpha, color.r(), color.g(), color.b()));
     paint.set_style(skia_safe::paint::Style::Fill);
 
-    let path_data = "M187.2 100.9C174.8 94.1 159.8 94.4 147.6 101.6C135.4 108.8 128 121.9 128 136L128 504C128 518.1 135.5 531.2 147.6 538.4C159.7 545.6 174.8 545.9 187.2 539.1L523.2 355.1C536 348.1 544 334.6 544 320C544 305.4 536 291.9 523.2 284.9L187.2 100.9z";
-
-    if let Some(path) = Path::from_svg(path_data) {
+    if let Some(path) = Path::from_svg(PLAY_TRIANGLE_PATH) {
         canvas.save();
         canvas.translate((cx, cy));
         let s = 0.083 * scale;
@@ -52,9 +52,7 @@ pub fn draw_control_triangle(
     paint.set_color(Color::from_argb(alpha, color.r(), color.g(), color.b()));
     paint.set_style(skia_safe::paint::Style::Fill);
 
-    let path_data = "M187.2 100.9C174.8 94.1 159.8 94.4 147.6 101.6C135.4 108.8 128 121.9 128 136L128 504C128 518.1 135.5 531.2 147.6 538.4C159.7 545.6 174.8 545.9 187.2 539.1L523.2 355.1C536 348.1 544 334.6 544 320C544 305.4 536 291.9 523.2 284.9L187.2 100.9z";
-
-    if let Some(path) = Path::from_svg(path_data) {
+    if let Some(path) = Path::from_svg(PLAY_TRIANGLE_PATH) {
         canvas.save();
         canvas.translate((cx, cy));
         let s = path_scale * scale;

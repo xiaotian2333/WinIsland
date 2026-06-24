@@ -1,7 +1,3 @@
-use crate::core::config::{APP_HOMEPAGE, is_valid_color};
-use crate::core::lyrics::{MusicData, parse_music_data_payload};
-use crate::core::persistence;
-use crate::utils::font::FontManager;
 use futures_util::{Sink, SinkExt, StreamExt};
 use serde_json::{Value, json};
 use tokio::net::TcpListener;
@@ -9,6 +5,11 @@ use tokio::sync::{broadcast, mpsc};
 use tokio_tungstenite::accept_async;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_util::sync::CancellationToken;
+
+use crate::core::config::{APP_HOMEPAGE, is_valid_color};
+use crate::core::lyrics::{MusicData, parse_music_data_payload};
+use crate::core::persistence;
+use crate::utils::font::FontManager;
 
 #[allow(dead_code)]
 #[derive(Clone, Debug)]

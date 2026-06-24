@@ -54,35 +54,37 @@ pub fn restore_and_activate_window(hwnd: HWND) {
     }
 }
 
-unsafe fn activate_window_with_attached_input(hwnd: HWND) {
-    let current_thread = unsafe { GetCurrentThreadId() };
-    let target_thread = unsafe { GetWindowThreadProcessId(hwnd, None) };
-    let foreground_hwnd = unsafe { GetForegroundWindow() };
-    let foreground_thread = if foreground_hwnd.0.is_null() {
-        0
-    } else {
-        unsafe { GetWindowThreadProcessId(foreground_hwnd, None) }
-    };
-
-    let attached_foreground = foreground_thread != 0
-        && foreground_thread != current_thread
-        && unsafe { AttachThreadInput(current_thread, foreground_thread, true).as_bool() };
-    let attached_target = target_thread != 0
-        && target_thread != current_thread
-        && unsafe { AttachThreadInput(current_thread, target_thread, true).as_bool() };
-
+fn activate_window_with_attached_input(hwnd: HWND) {
+    // SAFETY: 这些 Win32 调用只查询线程和窗口状态，并尝试激活调用方传入的 HWND。
+    // AttachThreadInput 只在目标线程有效且不同于当前线程时调用，成功附加后会在本块内解除。
     unsafe {
+        let current_thread = GetCurrentThreadId();
+        let target_thread = GetWindowThreadProcessId(hwnd, None);
+        let foreground_hwnd = GetForegroundWindow();
+        let foreground_thread = if foreground_hwnd.0.is_null() {
+            0
+        } else {
+            GetWindowThreadProcessId(foreground_hwnd, None)
+        };
+
+        let attached_foreground = foreground_thread != 0
+            && foreground_thread != current_thread
+            && AttachThreadInput(current_thread, foreground_thread, true).as_bool();
+        let attached_target = target_thread != 0
+            && target_thread != current_thread
+            && AttachThreadInput(current_thread, target_thread, true).as_bool();
+
         let _ = BringWindowToTop(hwnd);
         let _ = SetActiveWindow(hwnd);
         let _ = SetFocus(hwnd);
         let _ = SetForegroundWindow(hwnd);
-    }
 
-    if attached_target {
-        let _ = unsafe { AttachThreadInput(current_thread, target_thread, false) };
-    }
-    if attached_foreground {
-        let _ = unsafe { AttachThreadInput(current_thread, foreground_thread, false) };
+        if attached_target {
+            let _ = AttachThreadInput(current_thread, target_thread, false);
+        }
+        if attached_foreground {
+            let _ = AttachThreadInput(current_thread, foreground_thread, false);
+        }
     }
 }
 

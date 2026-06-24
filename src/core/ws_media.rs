@@ -1,13 +1,15 @@
-use crate::core::lyrics::MusicData;
-use crate::core::lyrics_ws::{LyricsWsEvent, LyricsWsHandle, PlayAction, start_lyrics_ws_server};
-use crate::core::media_info::MediaInfo;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
+
 use tokio::sync::{mpsc, watch};
 use tokio_util::sync::CancellationToken;
+
+use crate::core::lyrics::MusicData;
+use crate::core::lyrics_ws::{LyricsWsEvent, LyricsWsHandle, PlayAction, start_lyrics_ws_server};
+use crate::core::media_info::MediaInfo;
 
 #[derive(Debug, Clone)]
 enum PlaybackCommand {
@@ -373,7 +375,7 @@ fn apply_music_data(
 
     if let Some(ref cover) = metadata.cover
         && cover.len() > 4
-        && (cover.starts_with(&[0xFF, 0xD8, 0xFF])
+        && (cover.starts_with(&[0xFF, 0xD8])
             || cover.starts_with(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A])
             || cover.starts_with(b"GIF87a")
             || cover.starts_with(b"GIF89a")

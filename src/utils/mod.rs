@@ -3,6 +3,7 @@ pub mod backdrop;
 pub mod blur;
 pub mod color;
 pub mod font;
+pub mod gdi_capture;
 pub mod glass;
 pub mod icon;
 pub mod liquid_glass;

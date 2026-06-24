@@ -1,3 +1,7 @@
+use std::cell::RefCell;
+
+use skia_safe::{Canvas, ClipOp, Color, FontStyle, Paint, Rect};
+
 use crate::core::config::LyricsFilterScope;
 use crate::core::lyrics::{current_character_index, current_lyric_index};
 use crate::core::media_info::MediaInfo;
@@ -5,12 +9,18 @@ use crate::icons::arrows::draw_arrow_left;
 use crate::ui::expanded::music_view::draw_text_cached;
 use crate::utils::color::{color_with_alpha, lyric_boundary_gradient_shader};
 use crate::utils::font::{DrawTextCachedParams, FontManager};
-use skia_safe::{Canvas, ClipOp, Color, FontStyle, Paint, Rect};
-use std::cell::RefCell;
 
 thread_local! {
     static LYRIC_SCROLL_STATE: RefCell<LyricScrollState> = RefCell::new(LyricScrollState::new());
     static CURRENT_LINE_SCROLL: RefCell<CurrentLineScrollState> = RefCell::new(CurrentLineScrollState::new());
+}
+
+fn hash_text(text: &str) -> u64 {
+    let mut hash: u64 = 5381;
+    for byte in text.bytes() {
+        hash = hash.wrapping_mul(33).wrapping_add(byte as u64);
+    }
+    hash
 }
 
 struct LyricScrollState {
@@ -31,7 +41,7 @@ impl LyricScrollState {
     }
 
     fn update(&mut self, new_idx: usize, dt: f32, song_title: &str) {
-        let hash = Self::hash_text(song_title);
+        let hash = hash_text(song_title);
         if hash != self.title_hash {
             self.title_hash = hash;
             self.current_idx = 0;
@@ -49,14 +59,6 @@ impl LyricScrollState {
                 self.scroll_progress = 1.0;
             }
         }
-    }
-
-    fn hash_text(text: &str) -> u64 {
-        let mut hash: u64 = 5381;
-        for byte in text.bytes() {
-            hash = hash.wrapping_mul(33).wrapping_add(byte as u64);
-        }
-        hash
     }
 
     fn is_animating(&self) -> bool {
@@ -82,7 +84,7 @@ impl CurrentLineScrollState {
     }
 
     fn update(&mut self, text: &str, overflow: f32, dt: f32, scale: f32) {
-        let hash = Self::hash_text(text);
+        let hash = hash_text(text);
         if hash != self.text_hash {
             self.text_hash = hash;
             self.offset = 0.0;
@@ -112,14 +114,6 @@ impl CurrentLineScrollState {
             self.pause = 1.5;
             self.direction = 1;
         }
-    }
-
-    fn hash_text(text: &str) -> u64 {
-        let mut hash: u64 = 5381;
-        for byte in text.bytes() {
-            hash = hash.wrapping_mul(33).wrapping_add(byte as u64);
-        }
-        hash
     }
 }
 

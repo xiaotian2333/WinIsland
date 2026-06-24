@@ -1,8 +1,9 @@
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Arc, Mutex};
+
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, Sample, SampleFormat, Stream, StreamConfig};
 use realfft::RealFftPlanner;
-use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, Mutex};
 use tokio_util::sync::CancellationToken;
 use windows::Win32::Foundation::S_OK;
 use windows::Win32::Media::Audio::{

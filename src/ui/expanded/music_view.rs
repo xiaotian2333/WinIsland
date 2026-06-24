@@ -1,3 +1,12 @@
+use std::cell::RefCell;
+use std::collections::{HashMap, VecDeque};
+
+use skia_safe::canvas::SrcRectConstraint;
+use skia_safe::{
+    Canvas, Color, Data, FilterMode, FontStyle, ISize, Image, ImageInfo, MipmapMode, Paint, Point,
+    RRect, Rect, SamplingOptions, TileMode, gradient_shader, image_filters, images,
+};
+
 use crate::core::media_info::MediaInfo;
 use crate::icons::arrows::draw_arrow_right;
 use crate::icons::controls::{
@@ -6,20 +15,15 @@ use crate::icons::controls::{
 use crate::utils::font::{DrawTextCachedParams, FontManager};
 use crate::utils::physics::Spring;
 use crate::utils::scroll::{ScrollDrawParams, ScrollText};
-use skia_safe::canvas::SrcRectConstraint;
-use skia_safe::{
-    Canvas, Color, Data, FilterMode, FontStyle, ISize, Image, ImageInfo, MipmapMode, Paint, Point,
-    RRect, Rect, SamplingOptions, TileMode, gradient_shader, image_filters, images,
-};
-use std::cell::RefCell;
-use std::collections::HashMap;
 
 const CONTROL_BUTTON_GAP: f32 = 75.0;
 const FAVORITE_BUTTON_SCALE: f32 = 1.12;
 
+type PaletteCache = (HashMap<String, Vec<Color>>, VecDeque<String>);
+
 thread_local! {
     static IMG_CACHE: RefCell<Option<(String, Image)>> = const { RefCell::new(None) };
-    static COLOR_CACHE: RefCell<HashMap<String, Vec<Color>>> = RefCell::new(HashMap::new());
+    static COLOR_CACHE: RefCell<PaletteCache> = RefCell::new((HashMap::new(), VecDeque::new()));
     static VIZ_HEIGHTS: RefCell<[f32; 6]> = const { RefCell::new([3.0; 6]) };
     static PROGRESS_SMOOTH: RefCell<f32> = const { RefCell::new(-1.0) };
     static PAUSE_ANIM: RefCell<f32> = const { RefCell::new(0.0) };
@@ -70,6 +74,31 @@ fn ease_out_back(t: f32) -> f32 {
     1.0 + c3 * (t - 1.0).powi(3) + c1 * (t - 1.0).powi(2)
 }
 
+struct CoverLayout {
+    size: f32,
+    x: f32,
+    y: f32,
+}
+
+fn cover_layout(ox: f32, oy: f32, scale: f32, cover_shape: &str) -> CoverLayout {
+    let base_size = 72.0 * scale;
+    if cover_shape == "circle" {
+        let size = base_size * 1.08;
+        let offset = (size - base_size) / 2.0;
+        CoverLayout {
+            size,
+            x: ox + 28.0 * scale - offset,
+            y: oy + 24.0 * scale - offset,
+        }
+    } else {
+        CoverLayout {
+            size: base_size,
+            x: ox + 28.0 * scale,
+            y: oy + 24.0 * scale,
+        }
+    }
+}
+
 pub fn trigger_cover_flip() {
     let old_img = IMG_CACHE.with(|cache| cache.borrow().as_ref().map(|(_, img)| img.clone()));
     COVER_FLIP_OLD_IMG.with(|cell| {
@@ -94,14 +123,8 @@ pub fn get_pause_btn_rect(
     scale: f32,
     cover_shape: &str,
 ) -> (f32, f32, f32, f32) {
-    let (img_size, img_y) = if cover_shape == "circle" {
-        let s = 72.0 * scale * 1.08;
-        let y = oy + 24.0 * scale - (s - 72.0 * scale) / 2.0;
-        (s, y)
-    } else {
-        (72.0 * scale, oy + 24.0 * scale)
-    };
-    let bar_y = img_y + img_size + 18.0 * scale;
+    let cover = cover_layout(ox, oy, scale, cover_shape);
+    let bar_y = cover.y + cover.size + 18.0 * scale;
     let btn_cy = bar_y + 42.0 * scale;
     let hit = 40.0 * scale;
     let btn_cx = ox + w / 2.0;
@@ -116,14 +139,8 @@ pub fn get_prev_btn_rect(
     scale: f32,
     cover_shape: &str,
 ) -> (f32, f32, f32, f32) {
-    let (img_size, img_y) = if cover_shape == "circle" {
-        let s = 72.0 * scale * 1.08;
-        let y = oy + 24.0 * scale - (s - 72.0 * scale) / 2.0;
-        (s, y)
-    } else {
-        (72.0 * scale, oy + 24.0 * scale)
-    };
-    let bar_y = img_y + img_size + 18.0 * scale;
+    let cover = cover_layout(ox, oy, scale, cover_shape);
+    let bar_y = cover.y + cover.size + 18.0 * scale;
     let btn_cy = bar_y + 42.0 * scale;
     let hit = 36.0 * scale;
     let btn_cx = ox + w / 2.0 - CONTROL_BUTTON_GAP * scale;
@@ -138,14 +155,8 @@ pub fn get_next_btn_rect(
     scale: f32,
     cover_shape: &str,
 ) -> (f32, f32, f32, f32) {
-    let (img_size, img_y) = if cover_shape == "circle" {
-        let s = 72.0 * scale * 1.08;
-        let y = oy + 24.0 * scale - (s - 72.0 * scale) / 2.0;
-        (s, y)
-    } else {
-        (72.0 * scale, oy + 24.0 * scale)
-    };
-    let bar_y = img_y + img_size + 18.0 * scale;
+    let cover = cover_layout(ox, oy, scale, cover_shape);
+    let bar_y = cover.y + cover.size + 18.0 * scale;
     let btn_cy = bar_y + 42.0 * scale;
     let hit = 36.0 * scale;
     let btn_cx = ox + w / 2.0 + CONTROL_BUTTON_GAP * scale;
@@ -160,14 +171,8 @@ pub fn get_favorite_btn_rect(
     scale: f32,
     cover_shape: &str,
 ) -> (f32, f32, f32, f32) {
-    let (img_size, img_y) = if cover_shape == "circle" {
-        let s = 72.0 * scale * 1.08;
-        let y = oy + 24.0 * scale - (s - 72.0 * scale) / 2.0;
-        (s, y)
-    } else {
-        (72.0 * scale, oy + 24.0 * scale)
-    };
-    let bar_y = img_y + img_size + 18.0 * scale;
+    let cover = cover_layout(ox, oy, scale, cover_shape);
+    let bar_y = cover.y + cover.size + 18.0 * scale;
     let btn_cy = bar_y + 42.0 * scale;
     let hit = 36.0 * FAVORITE_BUTTON_SCALE * scale;
     let btn_cx = ox + w / 2.0 - CONTROL_BUTTON_GAP * 2.0 * scale;
@@ -181,22 +186,15 @@ pub fn get_music_info_rect(
     scale: f32,
     cover_shape: &str,
 ) -> (f32, f32, f32, f32) {
-    let (img_size, img_x, img_y) = if cover_shape == "circle" {
-        let s = 72.0 * scale * 1.08;
-        let x = ox + 28.0 * scale - (s - 72.0 * scale) / 2.0;
-        let y = oy + 24.0 * scale - (s - 72.0 * scale) / 2.0;
-        (s, x, y)
-    } else {
-        (72.0 * scale, ox + 28.0 * scale, oy + 24.0 * scale)
-    };
-    let text_x = img_x + img_size + 16.0 * scale;
+    let cover = cover_layout(ox, oy, scale, cover_shape);
+    let text_x = cover.x + cover.size + 16.0 * scale;
     let max_text_w = w - (text_x - ox) - 100.0 * scale;
-    let title_y = img_y + 26.0 * scale;
+    let title_y = cover.y + 26.0 * scale;
     let artist_y = title_y + 22.0 * scale;
     let padding = 8.0 * scale;
-    let right = (text_x + max_text_w).max(img_x + img_size);
-    let bottom = (artist_y + padding).max(img_y + img_size);
-    (img_x, img_y, right - img_x, bottom - img_y)
+    let right = (text_x + max_text_w).max(cover.x + cover.size);
+    let bottom = (artist_y + padding).max(cover.y + cover.size);
+    (cover.x, cover.y, right - cover.x, bottom - cover.y)
 }
 
 pub fn get_progress_bar_rect(
@@ -211,18 +209,11 @@ pub fn get_progress_bar_rect(
     if !music_active {
         return None;
     }
-    let (img_size, img_x, img_y) = if cover_shape == "circle" {
-        let s = 72.0 * scale * 1.08;
-        let x = ox + 28.0 * scale - (s - 72.0 * scale) / 2.0;
-        let y = oy + 24.0 * scale - (s - 72.0 * scale) / 2.0;
-        (s, x, y)
-    } else {
-        (72.0 * scale, ox + 28.0 * scale, oy + 24.0 * scale)
-    };
-    let bar_y = img_y + img_size + 18.0 * scale;
+    let cover = cover_layout(ox, oy, scale, cover_shape);
+    let bar_y = cover.y + cover.size + 18.0 * scale;
     let time_w = 36.0 * scale;
-    let bar_full_left = img_x;
-    let bar_full_right = img_x + w - 48.0 * scale;
+    let bar_full_left = cover.x;
+    let bar_full_right = cover.x + w - 48.0 * scale;
     let bar_left = bar_full_left + time_w + 4.0 * scale;
     let bar_right = bar_full_right - time_w - 4.0 * scale;
     let hit_h = 16.0 * scale;
@@ -380,15 +371,10 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
             text_color,
         );
     }
-    let base_img_size = 72.0 * scale;
-    let (img_size, img_x, img_y) = if cover_shape == "circle" {
-        let s = base_img_size * 1.08;
-        let x = ox + 28.0 * scale - (s - base_img_size) / 2.0;
-        let y = oy + 24.0 * scale - (s - base_img_size) / 2.0;
-        (s, x, y)
-    } else {
-        (base_img_size, ox + 28.0 * scale, oy + 24.0 * scale)
-    };
+    let cover = cover_layout(ox, oy, scale, cover_shape);
+    let img_size = cover.size;
+    let img_x = cover.x;
+    let img_y = cover.y;
     let image_to_draw = if music_active {
         get_cached_media_image(media)
     } else {
@@ -1052,12 +1038,8 @@ pub fn draw_visualizer(params: DrawVisualizerParams<'_>) {
 fn get_palette_from_image(img: &Image, cache_key: &str) -> Vec<Color> {
     COLOR_CACHE.with(|cache| {
         let mut cache_mut = cache.borrow_mut();
-        if cache_mut.len() > 50
-            && let Some(oldest_key) = cache_mut.keys().next().cloned()
-        {
-            cache_mut.remove(&oldest_key);
-        }
-        if let Some(palette) = cache_mut.get(cache_key) {
+        let (palettes, order) = &mut *cache_mut;
+        if let Some(palette) = palettes.get(cache_key) {
             return palette.clone();
         }
         let mut palette = Vec::new();
@@ -1124,7 +1106,14 @@ fn get_palette_from_image(img: &Image, cache_key: &str) -> Vec<Color> {
         if palette.is_empty() {
             palette.push(Color::from_rgb(200, 200, 200));
         }
-        cache_mut.insert(cache_key.to_string(), palette.clone());
+        while palettes.len() >= 50 {
+            let Some(oldest_key) = order.pop_front() else {
+                break;
+            };
+            palettes.remove(&oldest_key);
+        }
+        order.push_back(cache_key.to_string());
+        palettes.insert(cache_key.to_string(), palette.clone());
         palette
     })
 }
