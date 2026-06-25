@@ -29,6 +29,7 @@ pub enum LyricsWsCommand {
         is_favorite: bool,
         track_id: Option<String>,
     },
+    SetVolume(f32),
     GetPlaybackState,
     ShowMainWindow,
     ConfigSnapshot,
@@ -60,6 +61,9 @@ pub enum LyricsWsEvent {
     FavoriteState {
         is_favorite: bool,
         track_id: Option<String>,
+    },
+    VolumeState {
+        volume: f32,
     },
     ShowMainWindow,
     PluginDisabled,
@@ -96,6 +100,12 @@ impl LyricsWsHandle {
             is_favorite,
             track_id,
         });
+    }
+
+    pub fn set_volume(&self, volume: f32) {
+        if let Some(volume) = normalize_volume_value(volume as f64) {
+            let _ = self.command_tx.send(LyricsWsCommand::SetVolume(volume));
+        }
     }
 
     pub fn get_playback_state(&self) {
@@ -274,6 +284,9 @@ async fn handle_client(
                             json!({ "is_favorite": is_favorite })
                         };
                         send_command(&mut ws_write, "set_favorite", Some(data)).await?;
+                    }
+                    Ok(LyricsWsCommand::SetVolume(volume)) => {
+                        send_command(&mut ws_write, "set_volume", Some(json!({ "volume": volume }))).await?;
                     }
                     Ok(LyricsWsCommand::GetPlaybackState) => {
                         send_command(&mut ws_write, "get_playback_state", None).await?;
@@ -494,6 +507,17 @@ async fn handle_plugin_command(
                 track_id,
             });
         }
+        "set_volume" => {
+            let Some(volume) = payload
+                .get("data")
+                .and_then(|d| d.get("volume"))
+                .and_then(|v| v.as_f64())
+                .and_then(normalize_volume_value)
+            else {
+                return Ok(());
+            };
+            let _ = event_tx.send(LyricsWsEvent::VolumeState { volume });
+        }
         "show_main_window" => {
             let _ = event_tx.send(LyricsWsEvent::ShowMainWindow);
         }
@@ -501,6 +525,14 @@ async fn handle_plugin_command(
     }
 
     Ok(())
+}
+
+pub(crate) fn normalize_volume_value(volume: f64) -> Option<f32> {
+    if !volume.is_finite() {
+        return None;
+    }
+    let rounded = (volume.clamp(0.0, 1.0) * 1000.0).round() / 1000.0;
+    Some(rounded as f32)
 }
 
 async fn send_request_track_lyrics<S>(
@@ -576,4 +608,23 @@ where
         .send(Message::Text(message.to_string().into()))
         .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_volume_value_clamps_and_rounds() {
+        assert_eq!(normalize_volume_value(-0.2), Some(0.0));
+        assert_eq!(normalize_volume_value(1.2), Some(1.0));
+        assert_eq!(normalize_volume_value(0.1234), Some(0.123));
+        assert_eq!(normalize_volume_value(0.1235), Some(0.124));
+    }
+
+    #[test]
+    fn normalize_volume_value_rejects_invalid_number() {
+        assert_eq!(normalize_volume_value(f64::NAN), None);
+        assert_eq!(normalize_volume_value(f64::INFINITY), None);
+    }
 }

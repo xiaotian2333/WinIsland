@@ -335,6 +335,42 @@ pub struct DrawVisualizerParams<'a> {
     pub smooth_factors: (f32, f32),
 }
 
+pub fn get_visualizer_hit_rect(x: f32, y: f32, w_scale: f32, h_scale: f32) -> (f32, f32, f32, f32) {
+    let bar_count = 6.0;
+    let bar_w = 3.0 * w_scale;
+    let spacing = 2.0 * w_scale;
+    let max_h = 28.0 * h_scale;
+    let width = bar_count * (bar_w + spacing);
+    let start_x = x - width / 2.0;
+    let padding = 6.0 * w_scale.max(0.8);
+    (
+        start_x - padding,
+        y - max_h / 2.0 - padding,
+        width + padding * 2.0,
+        max_h + padding * 2.0,
+    )
+}
+
+pub fn get_expanded_visualizer_hit_rect(
+    ox: f32,
+    oy: f32,
+    w: f32,
+    scale: f32,
+    expansion_progress: f32,
+    cover_shape: &str,
+) -> (f32, f32, f32, f32) {
+    let cover = cover_layout(ox, oy, scale, cover_shape);
+    let title_y = cover.y + 26.0 * scale;
+    let viz_x_offset = 17.0 + (45.0 - 17.0) * expansion_progress;
+    let viz_h_scale = (0.45 + (1.0 - 0.45) * expansion_progress) * scale;
+    get_visualizer_hit_rect(
+        ox + w - viz_x_offset * scale,
+        title_y - 4.0 * scale,
+        scale,
+        viz_h_scale,
+    )
+}
+
 pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
     let DrawMusicPageParams {
         canvas,

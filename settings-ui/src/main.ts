@@ -395,6 +395,7 @@ function generalBehavior() {
     rows.push(numberRow(tr("hover_to_hide_distance"), "hover_to_hide_distance"));
     rows.push(numberRow(tr("hover_to_hide_delay"), "hover_to_hide_delay"));
   }
+  rows.push(switchRow(tr("spectrum_wheel_volume"), "spectrum_wheel_volume"));
   rows.push(switchRow(tr("show_favorite_button"), "show_favorite_button"));
   rows.push(
     selectRow(tr("language"), "language", [

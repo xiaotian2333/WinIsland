@@ -16,6 +16,7 @@ use crate::icons::controls::draw_play_button;
 use crate::ui::expanded::music_view::{
     DrawMusicPageParams, DrawVisualizerParams, draw_music_page, draw_text_cached, draw_visualizer,
     get_cached_media_image, get_cached_media_image_with_key, get_media_palette,
+    get_visualizer_hit_rect,
 };
 use crate::ui::expanded::widget_view::draw_widget_page;
 use crate::utils::backdrop::{get_dynamic_bg_color, get_last_valid_color, get_mica_background};
@@ -91,6 +92,23 @@ pub struct StyleParams<'a> {
     pub lyrics_filter_scope: LyricsFilterScope,
     pub lyrics_filter_regex: Option<&'a regex::Regex>,
     pub dt: f32,
+}
+
+pub fn get_mini_visualizer_hit_rect(
+    offset_x: f32,
+    offset_y: f32,
+    current_w: f32,
+    current_h: f32,
+    non_expanded_scale: f32,
+    expansion_progress: f32,
+) -> (f32, f32, f32, f32) {
+    let viz_h_scale = 0.45 + (1.0 - 0.45) * expansion_progress;
+    get_visualizer_hit_rect(
+        offset_x + current_w - 17.0 * non_expanded_scale,
+        offset_y + current_h / 2.0,
+        0.55 * non_expanded_scale,
+        viz_h_scale * non_expanded_scale,
+    )
 }
 
 pub struct DrawIslandParams<'a> {

@@ -8,7 +8,9 @@ use tokio::sync::{mpsc, watch};
 use tokio_util::sync::CancellationToken;
 
 use crate::core::lyrics::MusicData;
-use crate::core::lyrics_ws::{LyricsWsEvent, LyricsWsHandle, PlayAction, start_lyrics_ws_server};
+use crate::core::lyrics_ws::{
+    LyricsWsEvent, LyricsWsHandle, PlayAction, normalize_volume_value, start_lyrics_ws_server,
+};
 use crate::core::media_info::MediaInfo;
 
 #[derive(Debug, Clone)]
@@ -20,6 +22,7 @@ enum PlaybackCommand {
         is_favorite: bool,
         track_id: Option<String>,
     },
+    SetVolume(f32),
 }
 
 pub struct WsMediaListener {
@@ -98,6 +101,12 @@ impl WsMediaListener {
         });
     }
 
+    pub fn request_set_volume(&self, volume: f32) {
+        if let Some(volume) = normalize_volume_value(volume as f64) {
+            let _ = self.playback_tx.send(PlaybackCommand::SetVolume(volume));
+        }
+    }
+
     pub fn request_show_main_window(&self) {
         self.lyrics_ws_handle.show_main_window();
     }
@@ -161,6 +170,11 @@ async fn ws_media_loop(
                             state.is_favorite = is_favorite;
                             let _ = info_tx.send(state.clone());
                         }
+                    }
+                    PlaybackCommand::SetVolume(volume) => {
+                        lyrics_ws_handle.set_volume(volume);
+                        state.volume = Some(volume);
+                        let _ = info_tx.send(state.clone());
                     }
                 }
             }
@@ -253,6 +267,10 @@ fn handle_ws_event(
                 state.is_favorite = is_favorite;
                 let _ = info_tx.send(state.clone());
             }
+        }
+        LyricsWsEvent::VolumeState { volume } => {
+            state.volume = Some(volume);
+            let _ = info_tx.send(state.clone());
         }
         LyricsWsEvent::ShowMainWindow => {
             show_echomusic_main_window();

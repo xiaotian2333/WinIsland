@@ -168,6 +168,8 @@ pub struct AppConfig {
     pub hover_to_hide_distance: f32,
     #[serde(default = "default_hover_to_hide_delay")]
     pub hover_to_hide_delay: f32,
+    #[serde(default = "default_spectrum_wheel_volume")]
+    pub spectrum_wheel_volume: bool,
     #[serde(default = "default_check_for_updates")]
     pub check_for_updates: bool,
     #[serde(default = "default_update_check_interval")]
@@ -256,6 +258,10 @@ fn default_hover_to_hide_distance() -> f32 {
 
 fn default_hover_to_hide_delay() -> f32 {
     0.5
+}
+
+fn default_spectrum_wheel_volume() -> bool {
+    true
 }
 
 fn default_check_for_updates() -> bool {
@@ -390,6 +396,7 @@ impl Default for AppConfig {
             hover_to_hide: false,
             hover_to_hide_distance: 80.0,
             hover_to_hide_delay: 0.5,
+            spectrum_wheel_volume: true,
             check_for_updates: true,
             update_check_interval: 4.0,
             language: "auto".to_string(),

@@ -11,7 +11,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::PCWSTR;
 use winit::application::ApplicationHandler;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
-use winit::event::{ElementState, MouseButton, TouchPhase, WindowEvent};
+use winit::event::{ElementState, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow};
 use winit::platform::windows::WindowAttributesExtWindows;
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -24,14 +24,16 @@ use crate::core::config::{
 use crate::core::lyrics::{
     LyricCharacter, current_character_index, current_lyric_index, filtered_lyric_text,
 };
+use crate::core::lyrics_ws::normalize_volume_value;
 use crate::core::media_info::MediaInfo;
 use crate::core::persistence::load_config;
-use crate::core::render::{draw_island, get_mini_control_rects};
+use crate::core::render::{draw_island, get_mini_control_rects, get_mini_visualizer_hit_rect};
 use crate::core::ws_media::WsMediaListener;
 use crate::ui::expanded::music_view::{
-    get_favorite_btn_rect, get_music_info_rect, get_next_btn_rect, get_pause_btn_rect,
-    get_prev_btn_rect, get_progress_bar_rect, set_progress_dragging, set_progress_hover,
-    trigger_cover_flip, trigger_next_click, trigger_pause_click, trigger_prev_click,
+    get_expanded_visualizer_hit_rect, get_favorite_btn_rect, get_music_info_rect,
+    get_next_btn_rect, get_pause_btn_rect, get_prev_btn_rect, get_progress_bar_rect,
+    set_progress_dragging, set_progress_hover, trigger_cover_flip, trigger_next_click,
+    trigger_pause_click, trigger_prev_click,
 };
 use crate::utils::backdrop::{clear_mica_cache, disable_mica};
 use crate::utils::blur::calculate_blur_sigmas;
@@ -48,6 +50,10 @@ use crate::utils::process::get_foreground_process_name;
 use crate::window::tray::{TrayAction, TrayManager};
 
 const MINI_LYRIC_LOOP_GAP: f32 = 48.0;
+const VOLUME_WHEEL_SLOW_STEP: f32 = 0.02;
+const VOLUME_WHEEL_MEDIUM_STEP: f32 = 0.04;
+const VOLUME_WHEEL_FAST_STEP: f32 = 0.08;
+const VOLUME_WHEEL_MAX_UNITS: f32 = 1.0;
 
 pub struct App {
     window: Option<Arc<Window>>,
@@ -105,6 +111,8 @@ pub struct App {
     touch_id: Option<u64>,
     touch_pos: PhysicalPosition<f64>,
     hover_to_hide_enter_at: Option<Instant>,
+    last_volume_wheel_at: Option<Instant>,
+    pending_volume: Option<f32>,
 }
 
 impl Default for App {
@@ -166,6 +174,8 @@ impl Default for App {
             touch_id: None,
             touch_pos: PhysicalPosition::new(0.0, 0.0),
             hover_to_hide_enter_at: None,
+            last_volume_wheel_at: None,
+            pending_volume: None,
         }
     }
 }
@@ -184,6 +194,22 @@ struct MiniLyricCharacterData<'a> {
     characters: &'a [LyricCharacter],
     char_idx: usize,
     current_pos: u64,
+}
+
+fn volume_wheel_step(elapsed: Option<Duration>) -> f32 {
+    match elapsed {
+        Some(elapsed) if elapsed < Duration::from_millis(80) => VOLUME_WHEEL_FAST_STEP,
+        Some(elapsed) if elapsed <= Duration::from_millis(180) => VOLUME_WHEEL_MEDIUM_STEP,
+        _ => VOLUME_WHEEL_SLOW_STEP,
+    }
+}
+
+fn wheel_delta_units(delta: MouseScrollDelta) -> f32 {
+    let units = match delta {
+        MouseScrollDelta::LineDelta(_, y) => y,
+        MouseScrollDelta::PixelDelta(pos) => pos.y as f32 / 120.0,
+    };
+    units.clamp(-VOLUME_WHEEL_MAX_UNITS, VOLUME_WHEEL_MAX_UNITS)
 }
 
 impl App {
@@ -450,6 +476,100 @@ impl App {
             hidden_handle_y,
             hidden_handle_h,
         }
+    }
+
+    fn expansion_progress(&self) -> f32 {
+        let collapsed_h = self.config.base_height * self.config.non_expanded_scale;
+        let expanded_h = self.config.expanded_height * self.config.expanded_scale;
+        let delta_h = expanded_h - collapsed_h;
+        if delta_h.abs() < 0.001 {
+            if self.expanded { 1.0 } else { 0.0 }
+        } else {
+            ((self.spring_h.value - collapsed_h) / delta_h).clamp(0.0, 1.0)
+        }
+    }
+
+    fn cursor_on_visualizer(&self, px: i32, py: i32, media: &MediaInfo) -> bool {
+        if media.title.is_empty() || self.is_hidden() {
+            return false;
+        }
+
+        let rel_x = px - self.win_x;
+        let rel_y = py - self.win_y;
+        let layout = self.compute_island_layout();
+        let progress = self.expansion_progress();
+
+        if self.expanded {
+            if self.spring_view.value >= 0.5 {
+                return false;
+            }
+            let (x, y, w, h) = get_expanded_visualizer_hit_rect(
+                layout.offset_x as f32,
+                layout.current_island_y as f32,
+                self.spring_w.value,
+                self.config.expanded_scale,
+                progress,
+                &self.config.expanded_cover_shape,
+            );
+            let page_shift = self.spring_view.value * self.spring_w.value;
+            let cx = rel_x as f32 + page_shift;
+            let cy = rel_y as f32;
+            cx >= x && cx <= x + w && cy >= y && cy <= y + h
+        } else {
+            if self.spring_w.value <= 45.0 * self.config.non_expanded_scale {
+                return false;
+            }
+            let (x, y, w, h) = get_mini_visualizer_hit_rect(
+                layout.offset_x as f32,
+                layout.current_island_y as f32,
+                self.spring_w.value,
+                self.spring_h.value,
+                self.config.non_expanded_scale,
+                progress,
+            );
+            let cx = rel_x as f32;
+            let cy = rel_y as f32;
+            cx >= x && cx <= x + w && cy >= y && cy <= y + h
+        }
+    }
+
+    fn handle_volume_wheel(&mut self, delta: MouseScrollDelta, px: i32, py: i32) -> bool {
+        if !self.config.spectrum_wheel_volume {
+            return false;
+        }
+
+        let units = wheel_delta_units(delta);
+        if units.abs() < 0.01 {
+            return false;
+        }
+
+        let media = self.media.get_info();
+        if !self.cursor_on_visualizer(px, py, &media) {
+            return false;
+        }
+
+        let now = Instant::now();
+        let elapsed = self
+            .last_volume_wheel_at
+            .map(|last| now.saturating_duration_since(last));
+        let reset_base = match elapsed {
+            Some(elapsed) => elapsed > Duration::from_secs(1),
+            None => true,
+        };
+        let base_volume = if reset_base {
+            media.volume.unwrap_or(0.5)
+        } else {
+            self.pending_volume.or(media.volume).unwrap_or(0.5)
+        };
+        let step = volume_wheel_step(elapsed);
+        let next_volume =
+            normalize_volume_value((base_volume + step * units) as f64).unwrap_or(base_volume);
+
+        self.last_volume_wheel_at = Some(now);
+        self.pending_volume = Some(next_volume);
+        self.media.request_set_volume(next_volume);
+        self.idle_timer = now;
+        true
     }
 
     fn measure_lyric_text_width(&self, text: &str) -> f32 {
@@ -1214,6 +1334,12 @@ impl ApplicationHandler for App {
                 WindowEvent::CloseRequested => (),
                 WindowEvent::HoveredFile(_) => (),
                 WindowEvent::HoveredFileCancelled => (),
+                WindowEvent::MouseWheel { delta, .. } => {
+                    let (px, py) = get_global_cursor_pos();
+                    if self.handle_volume_wheel(delta, px, py) {
+                        return;
+                    }
+                }
                 WindowEvent::MouseInput {
                     state,
                     button: MouseButton::Left,
@@ -1247,6 +1373,7 @@ impl ApplicationHandler for App {
                         self.refresh_lyrics_filter_regex();
                     }
                     let is_hidden = self.is_hidden();
+                    let progress = self.expansion_progress();
                     if let Some(surface) = self.surface.as_mut() {
                         let dt =
                             (self.last_frame_time.elapsed().as_secs_f32() * 60.0).clamp(0.1, 3.0);
@@ -1259,14 +1386,6 @@ impl ApplicationHandler for App {
                             )
                         } else {
                             (0.0, 0.0)
-                        };
-                        let collapsed_h = self.config.base_height * self.config.non_expanded_scale;
-                        let expanded_h = self.config.expanded_height * self.config.expanded_scale;
-                        let delta_h = expanded_h - collapsed_h;
-                        let progress = if delta_h.abs() < 0.001 {
-                            if self.expanded { 1.0 } else { 0.0 }
-                        } else {
-                            ((self.spring_h.value - collapsed_h) / delta_h).clamp(0.0, 1.0)
                         };
                         let mut media_info = self.media.get_info();
                         if self.seeking_progress && self.seeking_duration_ms > 0 {
@@ -1794,5 +1913,49 @@ impl ApplicationHandler for App {
         if elapsed < target_frame_time {
             std::thread::sleep(target_frame_time - elapsed);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn volume_wheel_step_uses_standard_profile() {
+        assert_eq!(volume_wheel_step(None), VOLUME_WHEEL_SLOW_STEP);
+        assert_eq!(
+            volume_wheel_step(Some(Duration::from_millis(181))),
+            VOLUME_WHEEL_SLOW_STEP
+        );
+        assert_eq!(
+            volume_wheel_step(Some(Duration::from_millis(180))),
+            VOLUME_WHEEL_MEDIUM_STEP
+        );
+        assert_eq!(
+            volume_wheel_step(Some(Duration::from_millis(80))),
+            VOLUME_WHEEL_MEDIUM_STEP
+        );
+        assert_eq!(
+            volume_wheel_step(Some(Duration::from_millis(79))),
+            VOLUME_WHEEL_FAST_STEP
+        );
+    }
+
+    #[test]
+    fn wheel_delta_units_has_single_event_limit() {
+        assert_eq!(
+            wheel_delta_units(MouseScrollDelta::LineDelta(0.0, 3.0)),
+            VOLUME_WHEEL_MAX_UNITS
+        );
+        assert_eq!(
+            wheel_delta_units(MouseScrollDelta::LineDelta(0.0, -3.0)),
+            -VOLUME_WHEEL_MAX_UNITS
+        );
+        assert_eq!(
+            wheel_delta_units(MouseScrollDelta::PixelDelta(PhysicalPosition::new(
+                0.0, 60.0
+            ))),
+            0.5
+        );
     }
 }
