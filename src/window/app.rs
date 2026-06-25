@@ -489,7 +489,7 @@ impl App {
         }
     }
 
-    fn cursor_on_visualizer(&self, px: i32, py: i32, media: &MediaInfo) -> bool {
+    fn cursor_on_volume_wheel_area(&self, px: i32, py: i32, media: &MediaInfo) -> bool {
         if media.title.is_empty() || self.is_hidden() {
             return false;
         }
@@ -516,6 +516,16 @@ impl App {
             let cy = rel_y as f32;
             cx >= x && cx <= x + w && cy >= y && cy <= y + h
         } else {
+            if self.config.non_expanded_wheel_volume {
+                return is_point_in_rect(
+                    rel_x as f64,
+                    rel_y as f64,
+                    layout.offset_x,
+                    layout.current_island_y,
+                    self.spring_w.value as f64,
+                    self.spring_h.value as f64,
+                );
+            }
             if self.spring_w.value <= 45.0 * self.config.non_expanded_scale {
                 return false;
             }
@@ -544,7 +554,7 @@ impl App {
         }
 
         let media = self.media.get_info();
-        if !self.cursor_on_visualizer(px, py, &media) {
+        if !self.cursor_on_volume_wheel_area(px, py, &media) {
             return false;
         }
 
@@ -1336,9 +1346,7 @@ impl ApplicationHandler for App {
                 WindowEvent::HoveredFileCancelled => (),
                 WindowEvent::MouseWheel { delta, .. } => {
                     let (px, py) = get_global_cursor_pos();
-                    if self.handle_volume_wheel(delta, px, py) {
-                        return;
-                    }
+                    self.handle_volume_wheel(delta, px, py);
                 }
                 WindowEvent::MouseInput {
                     state,

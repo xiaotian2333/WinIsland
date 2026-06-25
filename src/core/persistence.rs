@@ -30,6 +30,9 @@ pub fn load_config() -> AppConfig {
     config.expanded_width = config.expanded_width.max(200.0);
     config.expanded_height = config.expanded_height.max(100.0);
     config.lyrics_scroll_max_width = config.lyrics_scroll_max_width.max(config.base_width + 35.0);
+    if !config.spectrum_wheel_volume {
+        config.non_expanded_wheel_volume = false;
+    }
     if !is_valid_color(&config.lyrics_char_color_unplayed) {
         config.lyrics_char_color_unplayed = AppConfig::default().lyrics_char_color_unplayed;
     }

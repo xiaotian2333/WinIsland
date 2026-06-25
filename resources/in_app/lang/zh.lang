@@ -59,6 +59,7 @@ hover_to_hide=鼠标靠近隐藏
 hover_to_hide_distance=隐藏距离 (px)
 hover_to_hide_delay=隐藏缓冲时间(s)
 spectrum_wheel_volume=频谱滚轮调节音量
+non_expanded_wheel_volume=非展开区域滚轮调节音量
 show_favorite_button=歌曲收藏按钮
 reset_defaults=恢复默认设置
 visit_homepage=访问项目主页

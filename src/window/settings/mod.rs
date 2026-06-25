@@ -80,6 +80,7 @@ const TRANSLATION_KEYS: &[&str] = &[
     "hover_to_hide_distance",
     "hover_to_hide_delay",
     "spectrum_wheel_volume",
+    "non_expanded_wheel_volume",
     "show_favorite_button",
     "reset_defaults",
     "visit_homepage",
@@ -286,6 +287,9 @@ fn normalize_config(config: &mut AppConfig) {
     config.hover_to_hide_delay = round_to(config.hover_to_hide_delay, 0.1).clamp(0.2, 3.0);
     config.update_check_interval = config.update_check_interval.clamp(1.0, 24.0);
     config.lyrics_delay = round_to_f64(config.lyrics_delay, 0.1).clamp(-10.0, 10.0);
+    if !config.spectrum_wheel_volume {
+        config.non_expanded_wheel_volume = false;
+    }
     let lyrics_scroll_min_width = (config.base_width + 35.0).max(100.0);
     config.lyrics_scroll_max_width = config.lyrics_scroll_max_width.clamp(
         lyrics_scroll_min_width,

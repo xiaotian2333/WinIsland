@@ -183,7 +183,13 @@ function setField(field, value) {
   if (numberSpec(field)) {
     value = clampNumber(field, Number(value));
   }
+  if (field === "non_expanded_wheel_volume" && !config.spectrum_wheel_volume) {
+    value = false;
+  }
   config[field] = value;
+  if (field === "spectrum_wheel_volume" && !value) {
+    config.non_expanded_wheel_volume = false;
+  }
   if (field === "base_width" || field === "lyrics_scroll_max_width") {
     config.lyrics_scroll_max_width = clampNumber(
       "lyrics_scroll_max_width",
@@ -396,6 +402,14 @@ function generalBehavior() {
     rows.push(numberRow(tr("hover_to_hide_delay"), "hover_to_hide_delay"));
   }
   rows.push(switchRow(tr("spectrum_wheel_volume"), "spectrum_wheel_volume"));
+  rows.push(
+    switchRow(
+      tr("non_expanded_wheel_volume"),
+      "non_expanded_wheel_volume",
+      config.spectrum_wheel_volume,
+      config.spectrum_wheel_volume && config.non_expanded_wheel_volume,
+    ),
+  );
   rows.push(switchRow(tr("show_favorite_button"), "show_favorite_button"));
   rows.push(
     selectRow(tr("language"), "language", [
