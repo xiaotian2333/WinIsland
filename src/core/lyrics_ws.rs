@@ -33,6 +33,7 @@ pub enum LyricsWsCommand {
     GetPlaybackState,
     ShowMainWindow,
     ConfigSnapshot,
+    SetPlayMode(String),
 }
 
 #[derive(Clone, Debug)]
@@ -66,6 +67,9 @@ pub enum LyricsWsEvent {
         volume: f32,
     },
     ShowMainWindow,
+    PlayModeState {
+        mode: String,
+    },
     PluginDisabled,
 }
 
@@ -114,6 +118,12 @@ impl LyricsWsHandle {
 
     pub fn show_main_window(&self) {
         let _ = self.command_tx.send(LyricsWsCommand::ShowMainWindow);
+    }
+
+    pub fn set_play_mode(&self, mode: String) {
+        let _ = self
+            .command_tx
+            .send(LyricsWsCommand::SetPlayMode(mode));
     }
 
     pub fn broadcast_config_snapshot(&self) {
@@ -293,6 +303,14 @@ async fn handle_client(
                     }
                     Ok(LyricsWsCommand::ShowMainWindow) => {
                         send_command(&mut ws_write, "show_main_window", None).await?;
+                    }
+                    Ok(LyricsWsCommand::SetPlayMode(mode)) => {
+                        send_command(
+                            &mut ws_write,
+                            "set_play_mode",
+                            Some(json!({ "mode": mode })),
+                        )
+                        .await?;
                     }
                     Ok(LyricsWsCommand::ConfigSnapshot) => {
                         send_config_snapshot(&mut ws_write).await?;
@@ -520,6 +538,15 @@ async fn handle_plugin_command(
         }
         "show_main_window" => {
             let _ = event_tx.send(LyricsWsEvent::ShowMainWindow);
+        }
+        "set_play_mode" => {
+            let mode = payload
+                .get("data")
+                .and_then(|d| d.get("mode"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("list")
+                .to_string();
+            let _ = event_tx.send(LyricsWsEvent::PlayModeState { mode });
         }
         _ => {}
     }

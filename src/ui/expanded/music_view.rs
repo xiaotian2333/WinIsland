@@ -12,6 +12,7 @@ use crate::icons::arrows::draw_arrow_right;
 use crate::icons::controls::{
     draw_control_triangle, draw_pause_button, draw_play_button, draw_star_button,
 };
+use crate::icons::play_mode::draw_play_mode_icon;
 use crate::utils::font::{DrawTextCachedParams, FontManager};
 use crate::utils::physics::Spring;
 use crate::utils::scroll::{ScrollDrawParams, ScrollText};
@@ -160,6 +161,22 @@ pub fn get_next_btn_rect(
     let btn_cy = bar_y + 42.0 * scale;
     let hit = 36.0 * scale;
     let btn_cx = ox + w / 2.0 + CONTROL_BUTTON_GAP * scale;
+    (btn_cx - hit / 2.0, btn_cy - hit / 2.0, hit, hit)
+}
+
+pub fn get_play_mode_btn_rect(
+    ox: f32,
+    oy: f32,
+    w: f32,
+    _h: f32,
+    scale: f32,
+    cover_shape: &str,
+) -> (f32, f32, f32, f32) {
+    let cover = cover_layout(ox, oy, scale, cover_shape);
+    let bar_y = cover.y + cover.size + 18.0 * scale;
+    let btn_cy = bar_y + 42.0 * scale;
+    let hit = 36.0 * scale;
+    let btn_cx = ox + w / 2.0 + CONTROL_BUTTON_GAP * 2.0 * scale;
     (btn_cx - hit / 2.0, btn_cy - hit / 2.0, hit, hit)
 }
 
@@ -980,6 +997,24 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
             draw_control_triangle(canvas, 10.92 * scale, 0.0, alpha, 0.055, scale, text_color);
         }
         canvas.restore();
+
+        let play_mode_cx = btn_cx + skip_gap * 2.0;
+        let play_mode_hit = 36.0 * scale;
+        let _pm_rect = (
+            play_mode_cx - play_mode_hit / 2.0,
+            btn_cy - play_mode_hit / 2.0,
+            play_mode_hit,
+            play_mode_hit,
+        );
+        draw_play_mode_icon(
+            canvas,
+            play_mode_cx,
+            btn_cy,
+            alpha,
+            scale,
+            text_color,
+            &media.play_mode,
+        );
     }
 
     let viz_x_offset = 17.0 + (45.0 - 17.0) * expansion_progress;

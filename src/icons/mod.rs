@@ -1,3 +1,4 @@
 pub mod arrows;
 pub mod controls;
 pub mod music;
+pub mod play_mode;

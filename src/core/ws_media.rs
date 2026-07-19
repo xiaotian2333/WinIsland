@@ -23,6 +23,7 @@ enum PlaybackCommand {
         track_id: Option<String>,
     },
     SetVolume(f32),
+    SetPlayMode(String),
 }
 
 pub struct WsMediaListener {
@@ -107,6 +108,10 @@ impl WsMediaListener {
         }
     }
 
+    pub fn request_set_play_mode(&self, mode: String) {
+        let _ = self.playback_tx.send(PlaybackCommand::SetPlayMode(mode));
+    }
+
     pub fn request_show_main_window(&self) {
         self.lyrics_ws_handle.show_main_window();
     }
@@ -174,6 +179,11 @@ async fn ws_media_loop(
                     PlaybackCommand::SetVolume(volume) => {
                         lyrics_ws_handle.set_volume(volume);
                         state.volume = Some(volume);
+                        let _ = info_tx.send(state.clone());
+                    }
+                    PlaybackCommand::SetPlayMode(mode) => {
+                        lyrics_ws_handle.set_play_mode(mode.clone());
+                        state.play_mode = mode;
                         let _ = info_tx.send(state.clone());
                     }
                 }
@@ -272,6 +282,10 @@ fn handle_ws_event(
             state.volume = Some(volume);
             let _ = info_tx.send(state.clone());
         }
+        LyricsWsEvent::PlayModeState { mode } => {
+            state.play_mode = mode;
+            let _ = info_tx.send(state.clone());
+        }
         LyricsWsEvent::ShowMainWindow => {
             show_echomusic_main_window();
         }
@@ -353,6 +367,7 @@ fn apply_music_data(
         state.artist = metadata.artist.clone();
         state.lyrics = Some(music_data.lyrics);
         state.is_favorite = metadata.is_favorite;
+        state.play_mode = metadata.play_mode.clone();
         if let Some(ref cover) = metadata.cover {
             state.thumbnail = Some(cover.clone());
             state.thumbnail_hash = hash_thumbnail_bytes(cover);
@@ -390,6 +405,7 @@ fn apply_music_data(
     state.lyrics = Some(music_data.lyrics);
     state.track_id = metadata.track_id.clone();
     state.is_favorite = metadata.is_favorite;
+    state.play_mode = metadata.play_mode.clone();
 
     if let Some(ref cover) = metadata.cover
         && cover.len() > 4

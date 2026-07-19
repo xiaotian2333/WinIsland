@@ -31,9 +31,9 @@ use crate::core::render::{draw_island, get_mini_control_rects, get_mini_visualiz
 use crate::core::ws_media::WsMediaListener;
 use crate::ui::expanded::music_view::{
     get_expanded_visualizer_hit_rect, get_favorite_btn_rect, get_music_info_rect,
-    get_next_btn_rect, get_pause_btn_rect, get_prev_btn_rect, get_progress_bar_rect,
-    set_progress_dragging, set_progress_hover, trigger_cover_flip, trigger_next_click,
-    trigger_pause_click, trigger_prev_click,
+    get_next_btn_rect, get_pause_btn_rect, get_play_mode_btn_rect, get_prev_btn_rect,
+    get_progress_bar_rect, set_progress_dragging, set_progress_hover, trigger_cover_flip,
+    trigger_next_click, trigger_pause_click, trigger_prev_click,
 };
 use crate::utils::backdrop::{clear_mica_cache, disable_mica};
 use crate::utils::blur::calculate_blur_sigmas;
@@ -792,6 +792,31 @@ impl App {
                     trigger_cover_flip();
                     trigger_next_click();
                     self.media.request_next();
+                    return;
+                }
+
+                let (pmx, pmy, pmw, pmh) = get_play_mode_btn_rect(
+                    offset_x as f32,
+                    island_y as f32,
+                    w as f32,
+                    h as f32,
+                    self.config.expanded_scale,
+                    &self.config.expanded_cover_shape,
+                );
+                if music_on
+                    && cx >= pmx
+                    && cx <= pmx + pmw
+                    && cy >= pmy
+                    && cy <= pmy + pmh
+                {
+                    let next_mode = match media.play_mode.as_str() {
+                        "sequential" => "list",
+                        "list" => "random",
+                        "random" => "single",
+                        "single" => "sequential",
+                        _ => "list",
+                    };
+                    self.media.request_set_play_mode(next_mode.to_string());
                     return;
                 }
 

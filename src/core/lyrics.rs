@@ -70,6 +70,7 @@ pub struct MusicMetadata {
     pub artists: Vec<String>,
     pub cover: Option<Arc<Vec<u8>>>,
     pub is_favorite: bool,
+    pub play_mode: String,
 }
 
 #[derive(Clone, Default, Debug)]
@@ -123,6 +124,13 @@ pub fn parse_music_data_payload(payload: &Value) -> Option<MusicData> {
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
 
+    let play_mode = metadata
+        .get("play_mode")
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| String::from("list"));
+
     let lyrics = payload
         .get("lyrics")?
         .as_array()?
@@ -173,6 +181,7 @@ pub fn parse_music_data_payload(payload: &Value) -> Option<MusicData> {
             artists,
             cover,
             is_favorite,
+            play_mode,
         },
         lyrics: Arc::new(lyrics),
     })

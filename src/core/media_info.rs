@@ -21,6 +21,7 @@ pub struct MediaInfo {
     pub lyrics: Option<Arc<Vec<LyricLine>>>,
     pub duration_ms: u64,
     pub volume: Option<f32>,
+    pub play_mode: String,
 }
 
 impl Default for MediaInfo {
@@ -40,6 +41,7 @@ impl Default for MediaInfo {
             lyrics: None,
             duration_ms: 0,
             volume: None,
+            play_mode: String::from("list"),
         }
     }
 }
