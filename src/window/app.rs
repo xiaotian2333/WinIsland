@@ -803,12 +803,7 @@ impl App {
                     self.config.expanded_scale,
                     &self.config.expanded_cover_shape,
                 );
-                if music_on
-                    && cx >= pmx
-                    && cx <= pmx + pmw
-                    && cy >= pmy
-                    && cy <= pmy + pmh
-                {
+                if music_on && cx >= pmx && cx <= pmx + pmw && cy >= pmy && cy <= pmy + pmh {
                     let next_mode = match media.play_mode.as_str() {
                         "sequential" => "list",
                         "list" => "random",
@@ -828,13 +823,7 @@ impl App {
                     self.config.expanded_scale,
                     &self.config.expanded_cover_shape,
                 );
-                if music_on
-                    && self.config.show_favorite_button
-                    && cx >= fx
-                    && cx <= fx + fw
-                    && cy >= fy
-                    && cy <= fy + fh
-                {
+                if music_on && cx >= fx && cx <= fx + fw && cy >= fy && cy <= fy + fh {
                     self.media
                         .request_set_favorite(!media.is_favorite, media.track_id.clone());
                     return;
@@ -1549,7 +1538,6 @@ impl ApplicationHandler for App {
                                     expanded_cover_shape: &self.config.expanded_cover_shape,
                                     cover_rotate: self.config.cover_rotate,
                                     mini_controls: self.config.mini_controls,
-                                    show_favorite_button: self.config.show_favorite_button,
                                     lyrics_delay: self.config.lyrics_delay,
                                     lyrics_filter_scope: self.config.lyrics_filter_scope,
                                     lyrics_filter_regex: self.lyrics_filter_regex_cache.as_ref(),

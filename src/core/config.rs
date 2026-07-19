@@ -214,8 +214,6 @@ pub struct AppConfig {
     pub audio_gate: bool,
     #[serde(default = "default_mini_controls")]
     pub mini_controls: bool,
-    #[serde(default = "default_show_favorite_button")]
-    pub show_favorite_button: bool,
     #[serde(default = "default_lyrics_char_highlight")]
     pub lyrics_char_highlight: bool,
     #[serde(default = "default_lyrics_char_lift_animation")]
@@ -354,10 +352,6 @@ fn default_mini_controls() -> bool {
     false
 }
 
-fn default_show_favorite_button() -> bool {
-    false
-}
-
 fn default_lyrics_char_highlight() -> bool {
     true
 }
@@ -425,7 +419,6 @@ impl Default for AppConfig {
             cover_rotate: false,
             audio_gate: true,
             mini_controls: false,
-            show_favorite_button: false,
             lyrics_char_highlight: true,
             lyrics_char_lift_animation: true,
             lyrics_char_color_unplayed: "auto".to_string(),

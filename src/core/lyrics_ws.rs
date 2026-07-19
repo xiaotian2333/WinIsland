@@ -121,9 +121,7 @@ impl LyricsWsHandle {
     }
 
     pub fn set_play_mode(&self, mode: String) {
-        let _ = self
-            .command_tx
-            .send(LyricsWsCommand::SetPlayMode(mode));
+        let _ = self.command_tx.send(LyricsWsCommand::SetPlayMode(mode));
     }
 
     pub fn broadcast_config_snapshot(&self) {

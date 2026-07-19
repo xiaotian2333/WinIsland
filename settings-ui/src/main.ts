@@ -410,7 +410,6 @@ function generalBehavior() {
       config.spectrum_wheel_volume && config.non_expanded_wheel_volume,
     ),
   );
-  rows.push(switchRow(tr("show_favorite_button"), "show_favorite_button"));
   rows.push(
     selectRow(tr("language"), "language", [
       { value: "en", label: "English" },

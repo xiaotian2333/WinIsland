@@ -332,7 +332,6 @@ pub struct DrawMusicPageParams<'a> {
     pub font_size: f32,
     pub cover_shape: &'a str,
     pub cover_rotate: bool,
-    pub show_favorite_button: bool,
     pub dt: f32,
     pub text_color: Color,
     pub text_color_sec: Color,
@@ -406,7 +405,6 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
         font_size,
         cover_shape,
         cover_rotate,
-        show_favorite_button,
         dt,
         text_color,
         text_color_sec,
@@ -807,28 +805,26 @@ pub fn draw_music_page(params: DrawMusicPageParams<'_>) -> bool {
         let btn_cy = bar_center_y + bar_h / 2.0 + 42.0 * scale;
         let skip_gap = CONTROL_BUTTON_GAP * scale;
 
-        if show_favorite_button {
-            let (fav_x, _, fav_w, _) = get_favorite_btn_rect(ox, oy, w, h, scale, cover_shape);
-            let fav_cx = fav_x + fav_w / 2.0;
-            let fav_color = if media.is_favorite {
-                text_color
-            } else {
-                text_color_sec
-            };
-            let fav_alpha = if media.is_favorite {
-                alpha
-            } else {
-                (alpha as f32 * 0.55) as u8
-            };
-            draw_star_button(
-                canvas,
-                fav_cx,
-                btn_cy,
-                fav_alpha,
-                scale * FAVORITE_BUTTON_SCALE,
-                fav_color,
-            );
-        }
+        let (fav_x, _, fav_w, _) = get_favorite_btn_rect(ox, oy, w, h, scale, cover_shape);
+        let fav_cx = fav_x + fav_w / 2.0;
+        let fav_color = if media.is_favorite {
+            text_color
+        } else {
+            text_color_sec
+        };
+        let fav_alpha = if media.is_favorite {
+            alpha
+        } else {
+            (alpha as f32 * 0.55) as u8
+        };
+        draw_star_button(
+            canvas,
+            fav_cx,
+            btn_cy,
+            fav_alpha,
+            scale * FAVORITE_BUTTON_SCALE,
+            fav_color,
+        );
 
         let prev_t = PREV_SKIP_ANIM.with(|cell| {
             let start = *cell.borrow();
