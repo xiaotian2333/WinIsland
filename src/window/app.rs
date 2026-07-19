@@ -1220,7 +1220,7 @@ impl App {
                     self.lyric_scroll_offset = 0.0;
                     let min_w = self.config.base_width + 35.0;
                     let w: f32 = 60.0 + text_w;
-                    w.clamp(min_w, 450.0)
+                    w.clamp(min_w, min_w.max(450.0))
                 }
             } else {
                 self.config.base_width + 35.0
