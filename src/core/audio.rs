@@ -1,5 +1,6 @@
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, Sample, SampleFormat, Stream, StreamConfig};
@@ -7,18 +8,65 @@ use realfft::RealFftPlanner;
 use tokio_util::sync::CancellationToken;
 use windows::Win32::Foundation::S_OK;
 use windows::Win32::Media::Audio::{
-    Endpoints::IAudioMeterInformation, IAudioSessionControl2, IAudioSessionManager2,
-    IMMDeviceEnumerator, MMDeviceEnumerator, eConsole, eRender,
+    DEVICE_STATE, EDataFlow, ERole, Endpoints::IAudioMeterInformation, IAudioSessionControl2,
+    IAudioSessionManager2, IMMDeviceEnumerator, IMMNotificationClient, IMMNotificationClient_Impl,
+    MMDeviceEnumerator, eConsole, eRender,
 };
 use windows::Win32::System::Com::{
     CLSCTX_ALL, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx, CoUninitialize,
 };
-use windows::core::Interface;
+use windows::Win32::UI::Shell::PropertiesSystem::PROPERTYKEY;
+use windows::core::{Interface, PCWSTR, implement};
+
+#[implement(IMMNotificationClient)]
+struct AudioDeviceNotification {
+    generation: Arc<AtomicUsize>,
+}
+
+#[allow(non_snake_case)]
+impl IMMNotificationClient_Impl for AudioDeviceNotification_Impl {
+    fn OnDeviceStateChanged(
+        &self,
+        _device_id: &PCWSTR,
+        _new_state: DEVICE_STATE,
+    ) -> windows::core::Result<()> {
+        Ok(())
+    }
+
+    fn OnDeviceAdded(&self, _device_id: &PCWSTR) -> windows::core::Result<()> {
+        Ok(())
+    }
+
+    fn OnDeviceRemoved(&self, _device_id: &PCWSTR) -> windows::core::Result<()> {
+        Ok(())
+    }
+
+    fn OnDefaultDeviceChanged(
+        &self,
+        flow: EDataFlow,
+        role: ERole,
+        _default_device_id: &PCWSTR,
+    ) -> windows::core::Result<()> {
+        if flow == eRender && role == eConsole {
+            self.generation.fetch_add(1, Ordering::Relaxed);
+        }
+        Ok(())
+    }
+
+    fn OnPropertyValueChanged(
+        &self,
+        _device_id: &PCWSTR,
+        _key: &PROPERTYKEY,
+    ) -> windows::core::Result<()> {
+        Ok(())
+    }
+}
 
 pub struct AudioProcessor {
     spectrum: Arc<Mutex<[f32; 6]>>,
     gate: Arc<AtomicU32>,
     gate_override: Arc<AtomicU32>,
+    device_generation: Arc<AtomicUsize>,
     cancel_token: CancellationToken,
 }
 
@@ -29,13 +77,16 @@ impl AudioProcessor {
         // AtomicU32 stores f32 bit patterns since std::sync::atomic doesn't provide AtomicF32.
         // Relaxed ordering is sufficient: we only need eventual consistency for the gate value.
         let gate_override = Arc::new(AtomicU32::new(1.0f32.to_bits()));
+        let device_generation = Arc::new(AtomicUsize::new(0));
         let cancel_token = CancellationToken::new();
         let processor = Self {
             spectrum,
             gate,
             gate_override,
+            device_generation,
             cancel_token,
         };
+        processor.start_device_watch_thread();
         processor.start_capture();
         processor.start_meter_thread();
         processor
@@ -50,60 +101,166 @@ impl AudioProcessor {
         self.gate_override.store(v.to_bits(), Ordering::Relaxed);
     }
 
-    fn start_meter_thread(&self) {
+    fn start_device_watch_thread(&self) {
         let cancel = self.cancel_token.clone();
-        let gate_clone = self.gate.clone();
+        let generation = self.device_generation.clone();
         tokio::task::spawn_blocking(move || {
-            // SAFETY: CoInitializeEx initializes COM for this thread. COINIT_MULTITHREADED
-            // is safe as we don't use single-threaded COM apartments.
-            let hr = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
-            // SAFETY: CoCreateInstance creates COM objects for audio enumeration.
-            // All COM calls operate on locally created objects with no shared mutable state.
-            let session_manager: Option<IAudioSessionManager2> = unsafe {
-                (|| -> Option<IAudioSessionManager2> {
-                    let enumerator: IMMDeviceEnumerator =
-                        CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).ok()?;
-                    let device = enumerator.GetDefaultAudioEndpoint(eRender, eConsole).ok()?;
-                    device.Activate(CLSCTX_ALL, None).ok()
-                })()
-            };
             while !cancel.is_cancelled() {
-                let mut max_peak = 0.0f32;
-                if let Some(ref mgr) = session_manager {
-                    // SAFETY: GetSessionEnumerator and subsequent COM calls enumerate audio
-                    // sessions for peak meter reading. All objects are obtained from the
-                    // session_manager which is valid for the lifetime of this thread.
-                    unsafe {
-                        if let Ok(enumerator) = mgr.GetSessionEnumerator() {
-                            let count = enumerator.GetCount().unwrap_or(0);
-                            for i in 0..count {
-                                if let Ok(session) = enumerator.GetSession(i)
-                                    && let Ok(session2) = session.cast::<IAudioSessionControl2>()
-                                {
-                                    if session2.IsSystemSoundsSession() == S_OK {
-                                        continue;
-                                    }
-                                    if let Ok(meter) = session.cast::<IAudioMeterInformation>()
-                                        && let Ok(peak) = meter.GetPeakValue()
-                                    {
-                                        max_peak = max_peak.max(peak);
-                                    }
-                                }
-                            }
-                        }
-                    }
+                // SAFETY: 当前阻塞任务独占此线程的 COM 单元，并使用多线程单元模型初始化。
+                let hr = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
+                if hr.is_err() {
+                    log::error!("初始化音频设备通知 COM 失败: {hr:?}");
+                    std::thread::sleep(Duration::from_secs(1));
+                    continue;
                 }
-                let gate_val = if max_peak > 0.002 { 1.0f32 } else { 0.0f32 };
-                gate_clone.store(gate_val.to_bits(), Ordering::Relaxed);
-                std::thread::sleep(std::time::Duration::from_millis(50));
-            }
-            // Drop COM objects while COM is still initialized, then clean up.
-            drop(session_manager);
-            if hr.is_ok() {
-                // SAFETY: COM was initialized above, and all COM objects are dropped.
+
+                // SAFETY: COM 已在当前线程初始化，返回的枚举器仅在此线程内使用和释放。
+                let enumerator = unsafe {
+                    CoCreateInstance::<_, IMMDeviceEnumerator>(
+                        &MMDeviceEnumerator,
+                        None,
+                        CLSCTX_ALL,
+                    )
+                };
+                let enumerator = match enumerator {
+                    Ok(enumerator) => enumerator,
+                    Err(error) => {
+                        log::error!("创建音频设备枚举器失败: {error}");
+                        // SAFETY: 当前线程上的 COM 初始化已成功，且没有存活的 COM 对象。
+                        unsafe {
+                            CoUninitialize();
+                        }
+                        std::thread::sleep(Duration::from_secs(1));
+                        continue;
+                    }
+                };
+
+                let callback: IMMNotificationClient = AudioDeviceNotification {
+                    generation: generation.clone(),
+                }
+                .into();
+                // SAFETY: 枚举器和回调对象在注册期间持续存活，并会在释放前显式注销。
+                let registration =
+                    unsafe { enumerator.RegisterEndpointNotificationCallback(&callback) };
+                if let Err(error) = registration {
+                    log::error!("注册音频设备通知失败: {error}");
+                    drop(callback);
+                    drop(enumerator);
+                    // SAFETY: 所有当前线程创建的 COM 对象均已释放。
+                    unsafe {
+                        CoUninitialize();
+                    }
+                    std::thread::sleep(Duration::from_secs(1));
+                    continue;
+                }
+
+                generation.fetch_add(1, Ordering::Relaxed);
+                while !cancel.is_cancelled() {
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+
+                // SAFETY: 回调仍处于注册状态，枚举器与回调对象均有效。
+                if let Err(error) =
+                    unsafe { enumerator.UnregisterEndpointNotificationCallback(&callback) }
+                {
+                    log::warn!("注销音频设备通知失败: {error}");
+                }
+                drop(callback);
+                drop(enumerator);
+                // SAFETY: 所有当前线程创建的 COM 对象均已释放。
                 unsafe {
                     CoUninitialize();
                 }
+            }
+        });
+    }
+
+    fn start_meter_thread(&self) {
+        let cancel = self.cancel_token.clone();
+        let gate_clone = self.gate.clone();
+        let device_generation = self.device_generation.clone();
+        tokio::task::spawn_blocking(move || {
+            // SAFETY: 当前阻塞任务独占此线程的 COM 单元，并使用多线程单元模型初始化。
+            let hr = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
+            if hr.is_err() {
+                gate_clone.store(0.0f32.to_bits(), Ordering::Relaxed);
+                log::error!("初始化音量门控 COM 失败: {hr:?}");
+                return;
+            }
+
+            while !cancel.is_cancelled() {
+                gate_clone.store(0.0f32.to_bits(), Ordering::Relaxed);
+                let observed_generation = device_generation.load(Ordering::Relaxed);
+                // SAFETY: COM 已在当前线程初始化，创建的对象只在当前循环内使用。
+                let session_manager: Option<IAudioSessionManager2> = unsafe {
+                    (|| -> Option<IAudioSessionManager2> {
+                        let enumerator: IMMDeviceEnumerator =
+                            CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).ok()?;
+                        let device = enumerator.GetDefaultAudioEndpoint(eRender, eConsole).ok()?;
+                        device.Activate(CLSCTX_ALL, None).ok()
+                    })()
+                };
+                let Some(session_manager) = session_manager else {
+                    std::thread::sleep(Duration::from_millis(500));
+                    continue;
+                };
+
+                while !cancel.is_cancelled()
+                    && device_generation.load(Ordering::Relaxed) == observed_generation
+                {
+                    let mut max_peak = 0.0f32;
+                    let mut should_rebuild = false;
+                    // SAFETY: 会话及其测量接口均来自当前有效的会话管理器，且仅在本次迭代使用。
+                    unsafe {
+                        match session_manager.GetSessionEnumerator() {
+                            Ok(enumerator) => match enumerator.GetCount() {
+                                Ok(count) => {
+                                    for i in 0..count {
+                                        if let Ok(session) = enumerator.GetSession(i)
+                                            && let Ok(session2) =
+                                                session.cast::<IAudioSessionControl2>()
+                                        {
+                                            if session2.IsSystemSoundsSession() == S_OK {
+                                                continue;
+                                            }
+                                            if let Ok(meter) =
+                                                session.cast::<IAudioMeterInformation>()
+                                                && let Ok(peak) = meter.GetPeakValue()
+                                            {
+                                                max_peak = max_peak.max(peak);
+                                            }
+                                        }
+                                    }
+                                }
+                                Err(error) => {
+                                    log::debug!("读取音频会话数量失败，准备重建: {error}");
+                                    should_rebuild = true;
+                                }
+                            },
+                            Err(error) => {
+                                log::debug!("音频会话枚举失效，准备重建: {error}");
+                                should_rebuild = true;
+                            }
+                        }
+                    }
+                    if should_rebuild {
+                        break;
+                    }
+                    let gate_val = if max_peak > 0.002 { 1.0f32 } else { 0.0f32 };
+                    gate_clone.store(gate_val.to_bits(), Ordering::Relaxed);
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+                drop(session_manager);
+                if !cancel.is_cancelled()
+                    && device_generation.load(Ordering::Relaxed) == observed_generation
+                {
+                    std::thread::sleep(Duration::from_millis(500));
+                }
+            }
+            gate_clone.store(0.0f32.to_bits(), Ordering::Relaxed);
+            // SAFETY: 当前线程创建的所有 COM 对象均已释放。
+            unsafe {
+                CoUninitialize();
             }
         });
     }
@@ -113,89 +270,116 @@ impl AudioProcessor {
         let cancel = self.cancel_token.clone();
         let gate_clone = self.gate.clone();
         let gate_override_clone = self.gate_override.clone();
+        let device_generation = self.device_generation.clone();
         tokio::task::spawn_blocking(move || {
+            // SAFETY: 当前阻塞任务独占此线程的 COM 单元，并使用多线程单元模型初始化。
+            let hr = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
             let host = cpal::default_host();
-            let device = match host.default_output_device() {
-                Some(d) => d,
-                None => return,
-            };
-            let config = match device.default_output_config() {
-                Ok(c) => c,
-                Err(_) => return,
-            };
-            let stream_config: StreamConfig = config.config();
-            let stream = match config.sample_format() {
-                SampleFormat::F32 => build_capture_stream::<f32>(
-                    &device,
-                    &stream_config,
-                    spectrum_arc,
-                    gate_clone,
-                    gate_override_clone,
-                ),
-                SampleFormat::I16 => build_capture_stream::<i16>(
-                    &device,
-                    &stream_config,
-                    spectrum_arc,
-                    gate_clone,
-                    gate_override_clone,
-                ),
-                SampleFormat::U16 => build_capture_stream::<u16>(
-                    &device,
-                    &stream_config,
-                    spectrum_arc,
-                    gate_clone,
-                    gate_override_clone,
-                ),
-                _ => return,
-            };
-            if let Ok(s) = stream {
-                // SAFETY: CoInitializeEx initializes COM for this thread. COINIT_MULTITHREADED
-                // is safe as we don't use single-threaded COM apartments.
-                let hr = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
-                // SAFETY: CoCreateInstance and subsequent COM calls create audio session objects.
-                // All objects are locally scoped and valid for the lifetime of this thread.
-                let _session = unsafe {
-                    let enumerator: IMMDeviceEnumerator =
-                        match CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).ok() {
-                            Some(e) => e,
-                            None => {
-                                let _ = s.play();
-                                while !cancel.is_cancelled() {
-                                    std::thread::sleep(std::time::Duration::from_millis(100));
-                                }
-                                if hr.is_ok() {
-                                    // SAFETY: COM was initialized above, no COM objects to drop.
-                                    CoUninitialize();
-                                }
-                                return;
-                            }
-                        };
-                    let mut session = None;
-                    if let Ok(device) = enumerator.GetDefaultAudioEndpoint(eRender, eConsole)
-                        && let Ok(mgr) = device.Activate::<IAudioSessionManager2>(CLSCTX_ALL, None)
-                        && let Ok(ses) = mgr.GetSimpleAudioVolume(None, 0)
-                    {
-                        session = Some(ses);
-                    }
-                    session
+            while !cancel.is_cancelled() {
+                reset_spectrum(&spectrum_arc);
+                let observed_generation = device_generation.load(Ordering::Relaxed);
+                let Some(device) = host.default_output_device() else {
+                    std::thread::sleep(Duration::from_millis(500));
+                    continue;
                 };
-                // TODO: Re-enable auto-mute for monitoring wallpaper-only audio
-                // if let Some(ref ses) = session {
-                //     let _ = unsafe { ses.SetMute(true, std::ptr::null()) };
-                // }
-                let _ = s.play();
-                while !cancel.is_cancelled() {
-                    std::thread::sleep(std::time::Duration::from_millis(100));
-                }
-                // Drop COM objects while COM is still initialized, then clean up.
-                drop(_session);
-                if hr.is_ok() {
-                    // SAFETY: COM was initialized above, and all COM objects are dropped.
-                    unsafe {
-                        CoUninitialize();
+                let config = match device.default_output_config() {
+                    Ok(config) => config,
+                    Err(error) => {
+                        log::debug!("读取默认音频设备格式失败，准备重试: {error}");
+                        std::thread::sleep(Duration::from_millis(500));
+                        continue;
                     }
+                };
+                let stream_config: StreamConfig = config.config();
+                let stream_failed = Arc::new(AtomicBool::new(false));
+                let stream = match config.sample_format() {
+                    SampleFormat::F32 => build_capture_stream::<f32>(
+                        &device,
+                        &stream_config,
+                        spectrum_arc.clone(),
+                        gate_clone.clone(),
+                        gate_override_clone.clone(),
+                        stream_failed.clone(),
+                    ),
+                    SampleFormat::I16 => build_capture_stream::<i16>(
+                        &device,
+                        &stream_config,
+                        spectrum_arc.clone(),
+                        gate_clone.clone(),
+                        gate_override_clone.clone(),
+                        stream_failed.clone(),
+                    ),
+                    SampleFormat::U16 => build_capture_stream::<u16>(
+                        &device,
+                        &stream_config,
+                        spectrum_arc.clone(),
+                        gate_clone.clone(),
+                        gate_override_clone.clone(),
+                        stream_failed.clone(),
+                    ),
+                    sample_format => {
+                        log::error!("不支持的默认音频采样格式: {sample_format:?}");
+                        std::thread::sleep(Duration::from_millis(500));
+                        continue;
+                    }
+                };
+                let stream = match stream {
+                    Ok(stream) => stream,
+                    Err(error) => {
+                        log::debug!("创建频谱采集流失败，准备重试: {error}");
+                        std::thread::sleep(Duration::from_millis(500));
+                        continue;
+                    }
+                };
+
+                // SAFETY: COM 初始化成功时，创建的音频会话对象仅在本次采集周期内使用。
+                let _session = unsafe {
+                    if hr.is_ok() {
+                        (|| {
+                            let enumerator: IMMDeviceEnumerator =
+                                CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).ok()?;
+                            let device =
+                                enumerator.GetDefaultAudioEndpoint(eRender, eConsole).ok()?;
+                            let manager = device
+                                .Activate::<IAudioSessionManager2>(CLSCTX_ALL, None)
+                                .ok()?;
+                            manager.GetSimpleAudioVolume(None, 0).ok()
+                        })()
+                    } else {
+                        None
+                    }
+                };
+
+                if let Err(error) = stream.play() {
+                    log::debug!("启动频谱采集流失败，准备重试: {error}");
+                    drop(_session);
+                    drop(stream);
+                    std::thread::sleep(Duration::from_millis(500));
+                    continue;
                 }
-                // TODO: Re-enable auto-mute cleanup
+
+                while !cancel.is_cancelled()
+                    && device_generation.load(Ordering::Relaxed) == observed_generation
+                    && !stream_failed.load(Ordering::Relaxed)
+                {
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+
+                drop(stream);
+                drop(_session);
+                reset_spectrum(&spectrum_arc);
+                if !cancel.is_cancelled()
+                    && device_generation.load(Ordering::Relaxed) == observed_generation
+                    && stream_failed.load(Ordering::Relaxed)
+                {
+                    std::thread::sleep(Duration::from_millis(500));
+                }
+            }
+            if hr.is_ok() {
+                // SAFETY: 当前线程创建的所有 COM 对象均已释放。
+                unsafe {
+                    CoUninitialize();
+                }
             }
         });
     }
@@ -207,6 +391,7 @@ fn build_capture_stream<T>(
     spectrum_arc: Arc<Mutex<[f32; 6]>>,
     gate_clone: Arc<AtomicU32>,
     gate_override_clone: Arc<AtomicU32>,
+    stream_failed: Arc<AtomicBool>,
 ) -> Result<Stream, cpal::BuildStreamError>
 where
     T: cpal::SizedSample + Copy,
@@ -237,9 +422,16 @@ where
                 }
             }
         },
-        |err| log::error!("Audio error: {}", err),
+        move |error| {
+            log::error!("频谱采集流发生错误: {error}");
+            stream_failed.store(true, Ordering::Relaxed);
+        },
         None,
     )
+}
+
+fn reset_spectrum(spectrum: &Arc<Mutex<[f32; 6]>>) {
+    *spectrum.lock().unwrap_or_else(|error| error.into_inner()) = [0.0; 6];
 }
 
 fn update_spectrum(
