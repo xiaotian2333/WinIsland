@@ -556,7 +556,7 @@ pub(crate) fn normalize_volume_value(volume: f64) -> Option<f32> {
     if !volume.is_finite() {
         return None;
     }
-    let rounded = (volume.clamp(0.0, 1.0) * 1000.0).round() / 1000.0;
+    let rounded = (volume.clamp(0.0, 100.0) * 1000.0).round() / 1000.0;
     Some(rounded as f32)
 }
 
@@ -642,9 +642,9 @@ mod tests {
     #[test]
     fn normalize_volume_value_clamps_and_rounds() {
         assert_eq!(normalize_volume_value(-0.2), Some(0.0));
-        assert_eq!(normalize_volume_value(1.2), Some(1.0));
-        assert_eq!(normalize_volume_value(0.1234), Some(0.123));
-        assert_eq!(normalize_volume_value(0.1235), Some(0.124));
+        assert_eq!(normalize_volume_value(120.0), Some(100.0));
+        assert_eq!(normalize_volume_value(80.1234), Some(80.123));
+        assert_eq!(normalize_volume_value(80.1235), Some(80.124));
     }
 
     #[test]

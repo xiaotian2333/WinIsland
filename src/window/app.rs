@@ -50,9 +50,9 @@ use crate::utils::process::get_foreground_process_name;
 use crate::window::tray::{TrayAction, TrayManager};
 
 const MINI_LYRIC_LOOP_GAP: f32 = 48.0;
-const VOLUME_WHEEL_SLOW_STEP: f32 = 0.02;
-const VOLUME_WHEEL_MEDIUM_STEP: f32 = 0.04;
-const VOLUME_WHEEL_FAST_STEP: f32 = 0.08;
+const VOLUME_WHEEL_SLOW_STEP: f32 = 2.0;
+const VOLUME_WHEEL_MEDIUM_STEP: f32 = 4.0;
+const VOLUME_WHEEL_FAST_STEP: f32 = 8.0;
 const VOLUME_WHEEL_MAX_UNITS: f32 = 1.0;
 
 pub struct App {
@@ -567,9 +567,9 @@ impl App {
             None => true,
         };
         let base_volume = if reset_base {
-            media.volume.unwrap_or(0.5)
+            media.volume.unwrap_or(50.0)
         } else {
-            self.pending_volume.or(media.volume).unwrap_or(0.5)
+            self.pending_volume.or(media.volume).unwrap_or(50.0)
         };
         let step = volume_wheel_step(elapsed);
         let next_volume =
